@@ -1,7 +1,8 @@
 import { useRef, useEffect, useState } from 'react';
 import { Maximize2, Minimize2, Pause, Play } from 'lucide-react';
 import type { Telemetry, BoundingBox } from '../types';
-import { MOCK_TELEMETRY, MOCK_BOUNDING_BOXES } from '../data/mock';
+import { MOCK_TELEMETRY } from '../data/mock';
+import droneImage from '../assets/drone-image.jpg';
 
 interface VideoPanelProps {
   telemetry?: Telemetry;
@@ -11,12 +12,9 @@ interface VideoPanelProps {
   onPause?: () => void;
 }
 
-// Placeholder drone/aerial image - replace with real stream URL later
-const PLACEHOLDER_IMAGE = 'https://images.unsplash.com/photo-1507582020474-9a35b7d455d9?w=1280&h=720&fit=crop';
-
 export function VideoPanel({
   telemetry = MOCK_TELEMETRY,
-  boundingBoxes = MOCK_BOUNDING_BOXES,
+  boundingBoxes = [], // Pass MOCK_BOUNDING_BOXES to show detection boxes
   isLive = true,
   isPaused = false,
   onPause,
@@ -110,7 +108,7 @@ export function VideoPanel({
 
         <div className="absolute inset-0">
           <img
-            src={PLACEHOLDER_IMAGE}
+            src={droneImage}
             alt="Drone live feed"
             className={`w-full h-full object-cover ${isPaused ? 'opacity-80' : ''}`}
           />
