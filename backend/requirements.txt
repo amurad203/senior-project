@@ -1,0 +1,12 @@
+# Install PyTorch for your platform first if needed: https://pytorch.org/get-started/locally/
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.9
+pillow>=10.0.0
+torch>=2.1.0
+# Used by Ultralytics and common local backends.
+torchvision>=0.16.0
+ultralytics>=8.3.0
+opencv-python-headless>=4.10.0
+# YOLO-World set_classes() requires `import clip` (OpenAI CLIP); needs git installed
+git+https://github.com/openai/CLIP.git

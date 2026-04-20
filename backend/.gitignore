@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+# YOLO-World / Ultralytics local artifacts
+yolov8*.pt
+runs/
+Ultralytics/
+*.egg-info/
+.pytest_cache/
