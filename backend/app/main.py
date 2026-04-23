@@ -57,6 +57,41 @@ _gpu_tegrastats_last = 0.0
 _gpu_tegrastats_value: float | None = None
 
 
+def _read_cuda_memory_stats() -> dict[str, float | int | None]:
+    """
+    Read CUDA memory counters from PyTorch when available.
+    Returns null-like values when CUDA is unavailable.
+    """
+    empty = {
+        "gpu_cuda_memory_used_mb": None,
+        "gpu_cuda_memory_free_mb": None,
+        "gpu_cuda_memory_total_mb": None,
+        "gpu_cuda_memory_percent": None,
+    }
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return empty
+
+        device_idx = torch.cuda.current_device()
+        free_bytes, total_bytes = torch.cuda.mem_get_info(device_idx)
+        used_bytes = max(0, total_bytes - free_bytes)
+        if total_bytes <= 0:
+            return empty
+
+        used_pct = (used_bytes / total_bytes) * 100.0
+        mib = 1024.0 * 1024.0
+        return {
+            "gpu_cuda_memory_used_mb": round(used_bytes / mib, 1),
+            "gpu_cuda_memory_free_mb": round(free_bytes / mib, 1),
+            "gpu_cuda_memory_total_mb": round(total_bytes / mib, 1),
+            "gpu_cuda_memory_percent": round(max(0.0, min(100.0, used_pct)), 1),
+        }
+    except Exception:
+        return empty
+
+
 def _record_perf(kind: str, elapsed_ms: float) -> None:
     with _perf_lock:
         key_last = f"{kind}_last_ms"
@@ -274,6 +309,7 @@ def perf() -> dict:
         snapshot = dict(_perf_state)
     cpu_pct = _read_cpu_percent()
     gpu_pct = _read_gpu_percent()
+    cuda_memory = _read_cuda_memory_stats()
     gpu_metric = (
         "mps_memory_ratio"
         if platform.system() == "Darwin"
@@ -283,6 +319,7 @@ def perf() -> dict:
         "cpu_percent": round(cpu_pct, 1) if cpu_pct is not None else None,
         "gpu_percent": round(gpu_pct, 1) if gpu_pct is not None else None,
         "gpu_metric": gpu_metric,
+        **cuda_memory,
         "stream_fps": round(stream_state.fps, 2),
         "stream_has_frame": stream_state.has_frame,
         "stream_running": stream_state.running,

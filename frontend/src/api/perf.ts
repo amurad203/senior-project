@@ -8,6 +8,11 @@ export interface PerfLane {
 export interface PerfStats {
   cpu_percent: number | null;
   gpu_percent: number | null;
+  gpu_metric?: string;
+  gpu_cuda_memory_used_mb: number | null;
+  gpu_cuda_memory_free_mb: number | null;
+  gpu_cuda_memory_total_mb: number | null;
+  gpu_cuda_memory_percent: number | null;
   stream_fps: number;
   stream_has_frame: boolean;
   stream_running: boolean;

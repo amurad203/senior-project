@@ -352,6 +352,11 @@ export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
                 <span className="text-zinc-100">{perfStats.gpu_percent?.toFixed(1) ?? '--'}</span>%
               </div>
               <div>
+                cuda_mem: <span className="text-zinc-100">{perfStats.gpu_cuda_memory_percent?.toFixed(1) ?? '--'}</span>% (
+                <span className="text-zinc-100">{perfStats.gpu_cuda_memory_used_mb?.toFixed(0) ?? '--'}</span>/
+                <span className="text-zinc-100">{perfStats.gpu_cuda_memory_total_mb?.toFixed(0) ?? '--'}</span> MB)
+              </div>
+              <div>
                 stream: <span className="text-zinc-100">{perfStats.stream_fps.toFixed(1)}</span> fps
               </div>
               <div>
