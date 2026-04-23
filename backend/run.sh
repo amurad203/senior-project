@@ -3,6 +3,9 @@
 set -e
 cd "$(dirname "$0")"
 
+FRONTEND_DIR="../frontend"
+FRONTEND_DIST="${FRONTEND_DIR}/dist"
+
 # Create/use local virtualenv automatically for local workstation runs.
 if [[ -z "${VIRTUAL_ENV:-}" ]]; then
   if [[ ! -d ".venv" ]]; then
@@ -39,6 +42,19 @@ if [[ ! -f ".venv/.deps-installed" || -z "$REQ_HASH" || "$REQ_HASH" != "$PREV_HA
   fi
 fi
 
+# Build frontend once so FastAPI can serve a single UI+API service.
+if [[ "${SKIP_FRONTEND_BUILD:-0}" != "1" && -d "$FRONTEND_DIR" ]]; then
+  if [[ "${FORCE_FRONTEND_BUILD:-0}" == "1" || ! -d "$FRONTEND_DIST" ]]; then
+    echo "Building frontend bundle for single-service mode..."
+    if command -v npm >/dev/null 2>&1; then
+      (cd "$FRONTEND_DIR" && npm install && npm run build)
+    else
+      echo "WARNING: npm not found; skipping frontend build."
+      echo "         Install Node.js/npm, or set SKIP_FRONTEND_BUILD=1 to silence this warning."
+    fi
+  fi
+fi
+
 export UVICORN_PORT="${UVICORN_PORT:-8765}"
 if lsof -Pi ":${UVICORN_PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; then
   echo "ERROR: port ${UVICORN_PORT} is already in use (Address already in use)."
@@ -50,4 +66,5 @@ fi
 echo "Starting UAV API on http://127.0.0.1:${UVICORN_PORT}"
 echo "  Docs: http://127.0.0.1:${UVICORN_PORT}/docs"
 echo "  Health: http://127.0.0.1:${UVICORN_PORT}/health"
+echo "  UI: http://127.0.0.1:${UVICORN_PORT}/"
 exec uvicorn app.main:app --reload --host 127.0.0.1 --port "${UVICORN_PORT}"

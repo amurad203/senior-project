@@ -6,40 +6,13 @@ interface CommandConsoleProps {
   messages?: Message[];
   /** If set, awaited for each send; return text shown as system reply. */
   onSendCommand?: (command: string) => Promise<string>;
-  /** 0–1 detection score cutoff; lower returns more boxes (more false positives). */
-  boxThreshold?: number;
-  onBoxThresholdChange?: (value: number) => void;
   activeModel?: 'yolo_world' | null;
-  selectedModel?: string;
-  onSelectedModelChange?: (value: string) => void;
-  tileGrid?: number;
-  onTileGridChange?: (value: number) => void;
-  streamUrlInput?: string;
-  onStreamUrlInputChange?: (value: string) => void;
-  onConnectStream?: () => Promise<void>;
-  onDisconnectStream?: () => Promise<void>;
-  streamConnected?: boolean;
-  streamFps?: number;
-  streamError?: string | null;
 }
 
 export function CommandConsole({
   messages = [],
   onSendCommand,
-  boxThreshold,
-  onBoxThresholdChange,
   activeModel = null,
-  selectedModel = 'yolov8m-worldv2.pt',
-  onSelectedModelChange,
-  tileGrid = 1,
-  onTileGridChange,
-  streamUrlInput = '',
-  onStreamUrlInputChange,
-  onConnectStream,
-  onDisconnectStream,
-  streamConnected = false,
-  streamFps = 0,
-  streamError = null,
 }: CommandConsoleProps) {
   const [input, setInput] = useState('');
   const [localMessages, setLocalMessages] = useState<Message[]>(messages);
@@ -197,108 +170,6 @@ export function CommandConsole({
       </div>
 
       <div className="p-4 border-t border-zinc-800 flex-shrink-0 space-y-3">
-        {boxThreshold != null && onBoxThresholdChange && (
-          <div>
-            <div className="flex items-center justify-between gap-2 text-xs text-zinc-400 mb-1.5">
-              <label htmlFor="box-threshold">Detection threshold</label>
-              <span className="tabular-nums text-zinc-300">{boxThreshold.toFixed(2)}</span>
-            </div>
-            <input
-              id="box-threshold"
-              type="range"
-              min={0.05}
-              max={0.9}
-              step={0.01}
-              value={boxThreshold}
-              onChange={(e) => onBoxThresholdChange(Number(e.target.value))}
-              className="w-full h-2 accent-blue-500 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
-            />
-            <p className="text-[11px] text-zinc-500 mt-1">
-              Lower → more detections; higher → stricter. Matches server{' '}
-              <code className="text-zinc-400">box_threshold</code>.
-            </p>
-          </div>
-        )}
-        {onSelectedModelChange && (
-          <div>
-            <label htmlFor="model-select" className="block text-xs text-zinc-400 mb-1.5">
-              YOLO-World model
-            </label>
-            <select
-              id="model-select"
-              value={selectedModel}
-              onChange={(e) => onSelectedModelChange(e.target.value)}
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="yolov8s-worldv2.pt">yolov8s-worldv2.pt (fastest)</option>
-              <option value="yolov8m-worldv2.pt">yolov8m-worldv2.pt (balanced)</option>
-              <option value="yolov8l-worldv2.pt">yolov8l-worldv2.pt (stronger)</option>
-              <option value="yolov8x-worldv2.pt">yolov8x-worldv2.pt (strongest)</option>
-            </select>
-          </div>
-        )}
-        {onTileGridChange && (
-          <div>
-            <label htmlFor="tile-grid" className="block text-xs text-zinc-400 mb-1.5">
-              Tiling grid
-            </label>
-            <select
-              id="tile-grid"
-              value={tileGrid}
-              onChange={(e) => onTileGridChange(Number(e.target.value))}
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value={1}>1x1 (off)</option>
-              <option value={2}>2x2</option>
-              <option value={3}>3x3</option>
-              <option value={4}>4x4</option>
-            </select>
-            <p className="text-[11px] text-zinc-500 mt-1">
-              More tiles increase recall for tiny objects but are slower.
-            </p>
-          </div>
-        )}
-        {(onStreamUrlInputChange || onConnectStream || onDisconnectStream) && (
-          <div className="border border-zinc-800 rounded-lg p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <label htmlFor="stream-url" className="block text-xs text-zinc-400">
-                Drone stream URL (RTSP/RTMP/HTTP)
-              </label>
-              <span
-                className={`text-[11px] ${
-                  streamConnected ? 'text-emerald-400' : 'text-zinc-500'
-                }`}
-              >
-                {streamConnected ? `Connected (${streamFps.toFixed(1)} fps)` : 'Disconnected'}
-              </span>
-            </div>
-            <input
-              id="stream-url"
-              type="text"
-              value={streamUrlInput}
-              onChange={(e) => onStreamUrlInputChange?.(e.target.value)}
-              placeholder="rtsp://... or rtmp://..."
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => void onConnectStream?.()}
-                className="px-3 py-2 rounded-lg text-sm bg-sky-600 hover:bg-sky-500 text-white"
-              >
-                Connect stream
-              </button>
-              <button
-                type="button"
-                onClick={() => void onDisconnectStream?.()}
-                className="px-3 py-2 rounded-lg text-sm bg-zinc-700 hover:bg-zinc-600 text-white"
-              >
-                Disconnect
-              </button>
-            </div>
-            {streamError ? <p className="text-[11px] text-amber-400">{streamError}</p> : null}
-          </div>
-        )}
         <div className="flex gap-2">
           <input
             ref={inputRef}

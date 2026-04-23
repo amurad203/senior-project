@@ -1,0 +1,19 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8765:8765"
+    environment:
+      - YOLO_WORLD_MODEL=${YOLO_WORLD_MODEL:-yolov8m-worldv2.pt}
+      - YOLO_CONF=${YOLO_CONF:-0.25}
+      - YOLO_IMGSZ=${YOLO_IMGSZ:-1280}
+      - YOLO_MAX_DET=${YOLO_MAX_DET:-300}
+      - DINO_DEVICE=${DINO_DEVICE:-cpu}
+    volumes:
+      - model_cache:/root/.cache
+    restart: unless-stopped
+
+volumes:
+  model_cache:

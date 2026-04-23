@@ -17,9 +17,9 @@ import {
   Video,
   VideoOff,
 } from 'lucide-react';
-import type { Telemetry, BoundingBox } from '../types';
-import { MOCK_TELEMETRY } from '../data/mock';
+import type { BoundingBox } from '../types';
 import { canvasSourceToJpegBlob } from '../api/detect';
+import type { PerfStats } from '../api/perf';
 
 /** Imperative API for grabbing JPEG frames (uploaded image/video, webcam, or URL stream). */
 export type VideoFeedCapture = {
@@ -29,13 +29,13 @@ export type VideoFeedCapture = {
 };
 
 interface VideoPanelProps {
-  telemetry?: Telemetry;
   boundingBoxes?: BoundingBox[];
   isLive?: boolean;
   isPaused?: boolean;
   onPause?: () => void;
   streamUrl?: string | null;
   liveDetectActive?: boolean;
+  perfStats?: PerfStats | null;
 }
 
 type LocalFile = { kind: 'image' | 'video'; url: string };
@@ -43,13 +43,13 @@ type LocalFile = { kind: 'image' | 'video'; url: string };
 export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
   function VideoPanel(
     {
-      telemetry = MOCK_TELEMETRY,
       boundingBoxes = [],
       isLive = true,
       isPaused = false,
       onPause,
       streamUrl = null,
       liveDetectActive = false,
+      perfStats = null,
     },
     ref
   ) {
@@ -218,12 +218,6 @@ export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
     const isEmpty = !showVideo && !showImage;
     const feedActive = !isEmpty;
 
-    const getBatteryColor = (battery: number) => {
-      if (battery <= 20) return 'text-red-400';
-      if (battery <= 50) return 'text-yellow-400';
-      return 'text-green-400';
-    };
-
     useEffect(() => {
       const canvas = canvasRef.current;
       const container = containerRef.current;
@@ -317,6 +311,24 @@ export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
             {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
           </button>
 
+          {perfStats && (
+            <div className="absolute top-3 right-14 z-10 bg-black/65 rounded-lg px-3 py-2 text-[11px] text-zinc-200 font-mono leading-tight">
+              <div>
+                cpu: <span className="text-zinc-100">{perfStats.cpu_percent?.toFixed(1) ?? '--'}</span>% | gpu:{' '}
+                <span className="text-zinc-100">{perfStats.gpu_percent?.toFixed(1) ?? '--'}</span>%
+              </div>
+              <div>
+                stream: <span className="text-zinc-100">{perfStats.stream_fps.toFixed(1)}</span> fps
+              </div>
+              <div>
+                vlm: <span className="text-zinc-100">{perfStats.vlm.avg_ms.toFixed(0)}</span> ms
+              </div>
+              <div>
+                detect: <span className="text-zinc-100">{perfStats.detect.est_fps.toFixed(1)}</span> fps
+              </div>
+            </div>
+          )}
+
           <div className="absolute inset-0">
             {isEmpty && (
               <div className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-6 px-6 text-center bg-zinc-900/95">
@@ -380,14 +392,6 @@ export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
               className="absolute inset-0 w-full h-full pointer-events-none"
               style={{ mixBlendMode: 'normal' }}
             />
-          </div>
-
-          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-4 px-3 py-2 bg-black/60 rounded-lg text-white text-sm">
-            <span>Alt: {telemetry.altitude}m</span>
-            <span>Speed: {telemetry.speed} m/s</span>
-            <span>
-              Battery: <span className={getBatteryColor(telemetry.battery)}>{telemetry.battery}%</span>
-            </span>
           </div>
 
           <div className="absolute bottom-3 right-3 z-10 flex flex-col items-end gap-2">

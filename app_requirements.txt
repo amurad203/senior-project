@@ -1,0 +1,53 @@
+Senior UAV Detection App - runtime requirements
+==============================================
+
+System requirements
+-------------------
+1) Python 3.11+ (recommended: 3.11 or 3.12)
+2) Node.js 20+ and npm
+3) Git (required for installing OpenAI CLIP from GitHub)
+4) FFmpeg (required for RTSP/RTMP stream ingest)
+
+Python packages (backend)
+-------------------------
+Install from:
+  backend/requirements.txt
+
+Contents:
+- fastapi>=0.115.0
+- uvicorn[standard]>=0.32.0
+- python-multipart>=0.0.9
+- pillow>=10.0.0
+- torch>=2.1.0
+- torchvision>=0.16.0
+- ultralytics>=8.3.0
+- opencv-python-headless>=4.10.0
+- git+https://github.com/openai/CLIP.git
+
+Frontend packages
+-----------------
+Install from:
+  frontend/package.json
+
+Key runtime dependencies:
+- react
+- react-dom
+- lucide-react
+
+Setup commands
+--------------
+Backend:
+  cd backend
+  python3 -m venv .venv
+  source .venv/bin/activate
+  python -m pip install --upgrade pip
+  python -m pip install -r requirements.txt
+
+Frontend:
+  cd ../frontend
+  npm install
+
+Run app:
+  cd ../backend
+  ./run.sh
+

@@ -20,12 +20,13 @@ chmod +x run.sh   # once
 ```
 
 `run.sh` now auto-creates `.venv` and installs/updates `requirements.txt` packages when needed.  
-This is intended for local main-PC runs so packages are downloaded automatically on first run.
+It also builds `frontend/dist` (unless `SKIP_FRONTEND_BUILD=1`) so FastAPI can serve both API + UI from one service.
 
 Or manually: `uvicorn app.main:app --reload --host 127.0.0.1 --port 8765`
 
 - Health: [http://127.0.0.1:8765/health](http://127.0.0.1:8765/health)
 - Docs: [http://127.0.0.1:8765/docs](http://127.0.0.1:8765/docs)
+- UI: [http://127.0.0.1:8765/](http://127.0.0.1:8765/)
 
 Override port: `UVICORN_PORT=9000 ./run.sh` (match Vite proxy in `frontend/vite.config.ts`).
 
@@ -62,11 +63,14 @@ kill $(lsof -ti :8765)
 |----------|---------|---------|
 | `YOLO_WORLD_MODEL` | `yolov8m-worldv2.pt` | Ultralytics world weights |
 | `YOLO_CONF` | `0.25` | YOLO confidence when request has no `box_threshold` |
-| `YOLO_IMGSZ` | `1280` | Inference resolution (higher helps small objects; slower) |
+| `YOLO_IMGSZ` | `640` | Inference resolution (higher helps small objects; slower) |
 | `YOLO_MAX_DET` | `300` | Maximum detections per frame |
 | `YOLO_TILE_2X2` | `0` | Set `1` to run 2x2 tiled inference for better small-object recall (slower) |
 | `DINO_DEVICE` | auto (`cuda` / `mps` / `cpu`) | Force device for vision models |
+| `YOLO_ENFORCE_TENSORRT` | `0` | Set `1` to require TensorRT (`.engine` model + CUDA + `tensorrt` package) |
 | `SKIP_MODEL_LOAD` | unset | Set to `1` to skip loading weights |
+| `SKIP_FRONTEND_BUILD` | `0` | Set to `1` to skip automatic frontend build in `run.sh` |
+| `FORCE_FRONTEND_BUILD` | `0` | Set to `1` to force rebuilding `frontend/dist` in `run.sh` |
 
 ## API
 
@@ -95,4 +99,5 @@ Use these to connect RTSP/RTMP/file sources from the frontend without shell comm
 
 ## Frontend
 
-Vite proxies `/api` → `http://127.0.0.1:8765` (`frontend/vite.config.ts`).
+- **Single-service mode (recommended):** FastAPI serves built UI at `/`.
+- **Dev mode:** Vite proxies `/api` → `http://127.0.0.1:8765` (`frontend/vite.config.ts`).

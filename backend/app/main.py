@@ -5,18 +5,25 @@ Run (default port 8765 — avoids Django on 8000/8001):
   cd backend && ./run.sh
 
 Env:
-  YOLO_WORLD_MODEL=yolov8s-worldv2.pt  (or m/l/x variants)
+  YOLO_WORLD_MODEL=yolov8s-worldv2.pt  (or n/m variants)
 """
 
 from __future__ import annotations
 
 import io
 import logging
+import os
+import re
+import subprocess
+import threading
 import time
+from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 
@@ -26,11 +33,128 @@ from app.yolo_world import service as yolo_service
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 SUPPORTED_MODELS = (
+    "yolov8n-worldv2.pt",
     "yolov8s-worldv2.pt",
     "yolov8m-worldv2.pt",
-    "yolov8l-worldv2.pt",
-    "yolov8x-worldv2.pt",
 )
+_perf_lock = threading.Lock()
+_perf_state = {
+    "vlm_last_ms": 0.0,
+    "vlm_avg_ms": 0.0,
+    "vlm_count": 0,
+    "detect_last_ms": 0.0,
+    "detect_avg_ms": 0.0,
+    "detect_count": 0,
+    "last_updated_ms": 0,
+}
+_cpu_prev_total = 0
+_cpu_prev_idle = 0
+_gpu_tegrastats_last = 0.0
+_gpu_tegrastats_value: float | None = None
+
+
+def _record_perf(kind: str, elapsed_ms: float) -> None:
+    with _perf_lock:
+        key_last = f"{kind}_last_ms"
+        key_avg = f"{kind}_avg_ms"
+        key_count = f"{kind}_count"
+        prev_count = int(_perf_state[key_count])
+        prev_avg = float(_perf_state[key_avg])
+        next_count = prev_count + 1
+        next_avg = ((prev_avg * prev_count) + elapsed_ms) / next_count
+        _perf_state[key_last] = elapsed_ms
+        _perf_state[key_avg] = next_avg
+        _perf_state[key_count] = next_count
+        _perf_state["last_updated_ms"] = int(time.time() * 1000)
+
+
+def _read_cpu_percent() -> float | None:
+    """Compute host CPU utilization from /proc/stat deltas."""
+    global _cpu_prev_total, _cpu_prev_idle
+    try:
+        with open("/proc/stat", "r", encoding="utf-8") as f:
+            line = f.readline().strip()
+        if not line.startswith("cpu "):
+            return None
+        parts = line.split()
+        nums = [int(x) for x in parts[1:9]]
+        user, nice, system, idle, iowait, irq, softirq, steal = nums
+        idle_all = idle + iowait
+        total = user + nice + system + idle + iowait + irq + softirq + steal
+        if _cpu_prev_total == 0:
+            _cpu_prev_total = total
+            _cpu_prev_idle = idle_all
+            return None
+        total_delta = total - _cpu_prev_total
+        idle_delta = idle_all - _cpu_prev_idle
+        _cpu_prev_total = total
+        _cpu_prev_idle = idle_all
+        if total_delta <= 0:
+            return None
+        used_pct = (1.0 - (idle_delta / total_delta)) * 100.0
+        return max(0.0, min(100.0, used_pct))
+    except Exception:
+        return None
+
+
+def _normalize_gpu_load(raw: int) -> float:
+    """Normalize common Jetson/NVIDIA load formats to percent."""
+    if raw <= 100:
+        return float(raw)
+    if raw <= 255:
+        return (raw / 255.0) * 100.0
+    if raw <= 1000:
+        return raw / 10.0
+    if raw <= 10000:
+        return raw / 100.0
+    return min(100.0, float(raw))
+
+
+def _read_gpu_percent() -> float | None:
+    """Try common GPU load files on Jetson/NVIDIA hosts, then tegrastats."""
+    candidates = [
+        "/sys/devices/gpu.0/load",
+        "/sys/class/kgsl/kgsl-3d0/gpubusy",
+    ]
+    for path in candidates:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = f.read().strip()
+            if not raw:
+                continue
+            # kgsl gpubusy can be "busy total"; fallback to first integer.
+            token = raw.split()[0]
+            value = int(token)
+            return max(0.0, min(100.0, _normalize_gpu_load(value)))
+        except Exception:
+            continue
+    return _read_gpu_percent_from_tegrastats()
+
+
+def _read_gpu_percent_from_tegrastats() -> float | None:
+    """Fallback parser for Jetson tegrastats output (GR3D_FREQ XX%)."""
+    global _gpu_tegrastats_last, _gpu_tegrastats_value
+    now = time.time()
+    # Avoid spawning tegrastats too frequently.
+    if now - _gpu_tegrastats_last < 1.0:
+        return _gpu_tegrastats_value
+    _gpu_tegrastats_last = now
+    try:
+        proc = subprocess.run(
+            ["tegrastats", "--interval", "1000", "--count", "1"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        out = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        match = re.search(r"GR3D_FREQ\s+(\d+)%", out)
+        if match:
+            _gpu_tegrastats_value = max(0.0, min(100.0, float(match.group(1))))
+            return _gpu_tegrastats_value
+    except Exception:
+        pass
+    return _gpu_tegrastats_value
 
 app = FastAPI(
     title="UAV Local API",
@@ -46,6 +170,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_frontend_dist = (
+    Path(__file__).resolve().parents[2] / "frontend" / "dist"
+)
+if _frontend_dist.exists():
+    _assets_dir = _frontend_dist / "assets"
+    if _assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="frontend-assets")
+else:
+    logger.warning(
+        "Frontend dist not found at %s. Build frontend with `npm run build` in frontend/.",
+        _frontend_dist,
+    )
 
 
 @app.on_event("startup")
@@ -76,6 +213,39 @@ def health() -> dict:
             "fps": round(stream_state.fps, 2),
             "has_frame": stream_state.has_frame,
         },
+    }
+
+
+@app.get("/api/perf")
+def perf() -> dict:
+    stream_state = stream_manager.get_state()
+    with _perf_lock:
+        snapshot = dict(_perf_state)
+    cpu_pct = _read_cpu_percent()
+    gpu_pct = _read_gpu_percent()
+    return {
+        "cpu_percent": round(cpu_pct, 1) if cpu_pct is not None else None,
+        "gpu_percent": round(gpu_pct, 1) if gpu_pct is not None else None,
+        "stream_fps": round(stream_state.fps, 2),
+        "stream_has_frame": stream_state.has_frame,
+        "stream_running": stream_state.running,
+        "vlm": {
+            "last_ms": round(float(snapshot["vlm_last_ms"]), 2),
+            "avg_ms": round(float(snapshot["vlm_avg_ms"]), 2),
+            "count": int(snapshot["vlm_count"]),
+            "est_fps": round(
+                1000.0 / float(snapshot["vlm_avg_ms"]), 2
+            ) if float(snapshot["vlm_avg_ms"]) > 0 else 0.0,
+        },
+        "detect": {
+            "last_ms": round(float(snapshot["detect_last_ms"]), 2),
+            "avg_ms": round(float(snapshot["detect_avg_ms"]), 2),
+            "count": int(snapshot["detect_count"]),
+            "est_fps": round(
+                1000.0 / float(snapshot["detect_avg_ms"]), 2
+            ) if float(snapshot["detect_avg_ms"]) > 0 else 0.0,
+        },
+        "last_updated_ms": int(snapshot["last_updated_ms"]),
     }
 
 
@@ -121,6 +291,7 @@ async def vlm(
                 "Install dependencies (see README) and restart the server."
             ),
         )
+    t0 = time.perf_counter()
     boxes, normalized = yolo_service.detect(
         pil,
         prompt,
@@ -128,6 +299,7 @@ async def vlm(
         text_threshold=text_threshold,
         tile_grid=tile_grid_value,
     )
+    _record_perf("vlm", (time.perf_counter() - t0) * 1000.0)
     summary = f"Detected {len(boxes)} object(s). Targets: {normalized}"
     return {
         "mode": "yolo_world",
@@ -175,6 +347,7 @@ async def detect(
             status_code=503,
             detail=f"Detection model not loaded: {yolo_service.load_error or 'unknown'}",
         )
+    t0 = time.perf_counter()
     boxes, normalized_prompt = yolo_service.detect(
         pil,
         prompt,
@@ -182,6 +355,7 @@ async def detect(
         text_threshold=text_threshold,
         tile_grid=tile_grid_value,
     )
+    _record_perf("detect", (time.perf_counter() - t0) * 1000.0)
 
     return {
         "prompt_normalized": normalized_prompt,
@@ -270,3 +444,20 @@ def stream_mjpeg() -> StreamingResponse:
         generate(),
         media_type=f"multipart/x-mixed-replace; boundary={boundary}",
     )
+
+
+@app.get("/{full_path:path}")
+def spa_fallback(full_path: str):
+    """Serve built React app from FastAPI in single-service mode."""
+    if not _frontend_dist.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Frontend build not found. Run `npm run build` in frontend/.",
+        )
+    # Keep API/docs/openapi endpoints owned by FastAPI routes.
+    if full_path.startswith(("api/", "docs", "openapi.json", "redoc")):
+        raise HTTPException(status_code=404, detail="Not found")
+    index_html = _frontend_dist / "index.html"
+    if not index_html.exists():
+        raise HTTPException(status_code=404, detail="Frontend index.html missing")
+    return FileResponse(index_html)

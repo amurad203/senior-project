@@ -59,17 +59,32 @@ def _pick_device() -> str:
     pref = os.getenv("DINO_DEVICE", "").lower()
     if pref == "cpu":
         return "cpu"
-    if pref == "cuda" and torch.cuda.is_available():
-        return "cuda"
+    if pref == "cuda":
+        if torch.cuda.is_available():
+            return "cuda"
+        logger.warning("DINO_DEVICE=cuda set, but CUDA is unavailable; falling back.")
     if pref == "mps":
         if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
             return "mps"
-        return "cpu"
+        logger.warning("DINO_DEVICE=mps set, but MPS is unavailable; falling back.")
+    # Default behavior: always prefer GPU before CPU.
     if torch.cuda.is_available():
         return "cuda"
-    # Default to CPU for YOLO-World reliability on Apple Silicon.
-    # MPS can be forced with DINO_DEVICE=mps when desired.
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return "mps"
     return "cpu"
+
+
+def _is_truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _trt_enforced() -> bool:
+    return _is_truthy(os.getenv("YOLO_ENFORCE_TENSORRT"))
+
+
+def _is_trt_engine_model(model_name: str) -> bool:
+    return model_name.strip().lower().endswith(".engine")
 
 
 def _classes_from_prompt(user_text: str) -> tuple[list[str], str]:
@@ -179,6 +194,24 @@ class YoloWorldService:
 
         try:
             dev = _pick_device()
+            if _trt_enforced():
+                if not _is_trt_engine_model(self._model_name):
+                    self._load_error = (
+                        "TensorRT is enforced but YOLO_WORLD_MODEL is not a .engine file. "
+                        "Set YOLO_WORLD_MODEL to a TensorRT engine path."
+                    )
+                    return
+                if dev != "cuda":
+                    self._load_error = (
+                        "TensorRT is enforced but CUDA is unavailable. "
+                        "Install CUDA-enabled PyTorch/TensorRT on Jetson."
+                    )
+                    return
+                if importlib.util.find_spec("tensorrt") is None:
+                    self._load_error = (
+                        "TensorRT is enforced but Python tensorrt package is unavailable."
+                    )
+                    return
             logger.info("Loading YOLO-World %s on %s", self._model_name, dev)
             model = YOLO(self._model_name)
             self._device = dev
@@ -193,6 +226,12 @@ class YoloWorldService:
         """Hot-switch YOLO-World weights at runtime."""
         next_model = model_name.strip()
         if not next_model or next_model == self._model_name:
+            return
+        if _trt_enforced() and not _is_trt_engine_model(next_model):
+            logger.warning(
+                "TensorRT is enforced; ignoring non-engine model switch request: %s",
+                next_model,
+            )
             return
         logger.info("Switching YOLO-World model: %s -> %s", self._model_name, next_model)
         self._model_name = next_model
@@ -274,7 +313,7 @@ class YoloWorldService:
         results = self._model.predict(
             source=image,
             conf=conf,
-            imgsz=int(os.getenv("YOLO_IMGSZ", "1280")),
+            imgsz=int(os.getenv("YOLO_IMGSZ", "640")),
             max_det=int(os.getenv("YOLO_MAX_DET", "300")),
             verbose=False,
             device=self._device or "cpu",
