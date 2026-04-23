@@ -66,11 +66,21 @@ kill $(lsof -ti :8765)
 | `YOLO_IMGSZ` | `640` | Inference resolution (higher helps small objects; slower) |
 | `YOLO_MAX_DET` | `300` | Maximum detections per frame |
 | `YOLO_TILE_2X2` | `0` | Set `1` to run 2x2 tiled inference for better small-object recall (slower) |
+| `DEVICE_PROFILE` | `auto` | Platform profile defaults (`mac`, `jetson`, `windows-cuda`, `linux-cuda`, `cpu`) |
 | `DINO_DEVICE` | auto (`cuda` / `mps` / `cpu`) | Force device for vision models |
 | `YOLO_ENFORCE_TENSORRT` | `0` | Set `1` to require TensorRT (`.engine` model + CUDA + `tensorrt` package) |
 | `SKIP_MODEL_LOAD` | unset | Set to `1` to skip loading weights |
 | `SKIP_FRONTEND_BUILD` | `0` | Set to `1` to skip automatic frontend build in `run.sh` |
 | `FORCE_FRONTEND_BUILD` | `0` | Set to `1` to force rebuilding `frontend/dist` in `run.sh` |
+
+`DEVICE_PROFILE=auto` picks defaults by host:
+- macOS -> prefers MPS
+- Linux arm64/aarch64 (Jetson-style) -> prefers CUDA
+- Windows -> prefers CUDA
+- Linux x86_64 -> prefers CUDA
+- unknown -> CPU
+
+`DINO_DEVICE` still has highest priority and overrides profile behavior.
 
 ## API
 

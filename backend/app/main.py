@@ -252,6 +252,8 @@ def health() -> dict:
         "yolo_world": {
             "loaded": yolo_service.is_ready,
             "model_id": yolo_service.model_id,
+            "device_profile": yolo_service.device_profile,
+            "active_device": yolo_service.active_device,
             "error": yolo_service.load_error,
             "supported_models": SUPPORTED_MODELS,
         },

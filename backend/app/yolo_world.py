@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
+import platform
 import re
 import uuid
 from typing import Any
@@ -56,6 +57,7 @@ def _color_for_label(label: str) -> str:
 def _pick_device() -> str:
     import torch
 
+    profile = _resolve_device_profile()
     pref = os.getenv("DINO_DEVICE", "").lower()
     if pref == "cpu":
         return "cpu"
@@ -67,11 +69,44 @@ def _pick_device() -> str:
         if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
             return "mps"
         logger.warning("DINO_DEVICE=mps set, but MPS is unavailable; falling back.")
+
+    # Device profile defaults when DINO_DEVICE is not explicitly forced.
+    if profile in ("jetson", "windows-cuda", "linux-cuda"):
+        if torch.cuda.is_available():
+            return "cuda"
+        logger.warning("DEVICE_PROFILE=%s expects CUDA, but CUDA is unavailable; falling back.", profile)
+    if profile == "mac":
+        if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            return "mps"
+        logger.warning("DEVICE_PROFILE=mac expects MPS, but MPS is unavailable; falling back.")
+    if profile == "cpu":
+        return "cpu"
     # Default behavior: always prefer GPU before CPU.
     if torch.cuda.is_available():
         return "cuda"
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
         return "mps"
+    return "cpu"
+
+
+def _resolve_device_profile() -> str:
+    """Resolve runtime profile for platform-specific defaults."""
+    raw = os.getenv("DEVICE_PROFILE", "auto").strip().lower()
+    if raw in ("mac", "jetson", "windows-cuda", "linux-cuda", "cpu"):
+        return raw
+    if raw not in ("", "auto"):
+        logger.warning("Unknown DEVICE_PROFILE=%s, using auto.", raw)
+
+    sys_name = platform.system().lower()
+    machine = platform.machine().lower()
+    if sys_name == "darwin":
+        return "mac"
+    if sys_name == "windows":
+        return "windows-cuda"
+    if sys_name == "linux" and machine in ("aarch64", "arm64"):
+        return "jetson"
+    if sys_name == "linux":
+        return "linux-cuda"
     return "cpu"
 
 
@@ -186,6 +221,10 @@ class YoloWorldService:
     @property
     def active_device(self) -> str:
         return self._device or "unknown"
+
+    @property
+    def device_profile(self) -> str:
+        return _resolve_device_profile()
 
     def load(self) -> None:
         if os.getenv("SKIP_MODEL_LOAD", "").lower() in ("1", "true", "yes"):
