@@ -6,17 +6,19 @@ import type { BoundingBox } from './types';
 import { postVlm } from './api/vlm';
 import { getStreamStatus, startStream, stopStream } from './api/stream';
 import { getPerfStats, type PerfStats } from './api/perf';
+import { getHealth } from './api/health';
 
 /** Throttle: vision models are heavy; tune vs latency (ms between frames). */
-const LIVE_DETECT_INTERVAL_MS = 180;
+const DEFAULT_LIVE_DETECT_INTERVAL_MS = 60;
 /** Smaller JPEG for faster upload on live path */
 const LIVE_CAPTURE_MAX_SIDE = 640;
-type ModelOption =
-  | 'yolov8n-worldv2.pt'
-  | 'yolov8s-worldv2.pt'
-  | 'yolov8m-worldv2.pt'
-  | 'yolov8l-worldv2.pt'
-  | 'yolov8x-worldv2.pt';
+const DEFAULT_MODELS = [
+  'yolov8n-worldv2.pt',
+  'yolov8s-worldv2.pt',
+  'yolov8m-worldv2.pt',
+  'yolov8l-worldv2.pt',
+  'yolov8x-worldv2.pt',
+];
 type UiNotification = {
   id: string;
   title: string;
@@ -33,7 +35,9 @@ function App() {
   const [detectionPrompt, setDetectionPrompt] = useState('');
   /** Sent as `box_threshold` to the API (YOLO confidence). Lower → more boxes. */
   const [boxThreshold, setBoxThreshold] = useState(0.15);
-  const [selectedModel, setSelectedModel] = useState<ModelOption>('yolov8m-worldv2.pt');
+  const [selectedModel, setSelectedModel] = useState('yolov8m-worldv2.pt');
+  const [modelOptions, setModelOptions] = useState<string[]>(DEFAULT_MODELS);
+  const [liveDetectIntervalMs, setLiveDetectIntervalMs] = useState(DEFAULT_LIVE_DETECT_INTERVAL_MS);
   const [tileGrid, setTileGrid] = useState(1);
   const [streamUrlInput, setStreamUrlInput] = useState('');
   const [streamConnected, setStreamConnected] = useState(false);
@@ -109,10 +113,30 @@ function App() {
         busyRef.current = false;
       }
     };
-    const id = window.setInterval(tick, LIVE_DETECT_INTERVAL_MS);
+    const id = window.setInterval(tick, liveDetectIntervalMs);
     void tick();
     return () => clearInterval(id);
-  }, [isPaused, detectionPrompt, boxThreshold, selectedModel, tileGrid]);
+  }, [isPaused, detectionPrompt, boxThreshold, selectedModel, tileGrid, liveDetectIntervalMs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadHealth = async () => {
+      try {
+        const health = await getHealth();
+        const supported = health.yolo_world?.supported_models ?? [];
+        if (!cancelled && supported.length > 0) {
+          setModelOptions(supported);
+          setSelectedModel((prev) => (supported.includes(prev) ? prev : supported[0]));
+        }
+      } catch (e) {
+        console.warn('Unable to load supported models from backend health:', e);
+      }
+    };
+    void loadHealth();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refreshStreamStatus = useCallback(async () => {
     try {
@@ -208,13 +232,18 @@ function App() {
   }, [pushNotification]);
 
   const handleModelChange = useCallback((value: string) => {
-    setSelectedModel(value as ModelOption);
+    setSelectedModel(value);
     pushNotification('Model updated', `YOLO model changed to ${value}.`);
   }, [pushNotification]);
 
   const handleTileGridChange = useCallback((value: number) => {
     setTileGrid(value);
     pushNotification('Tiling updated', `Detection tiling set to ${value}x${value}.`);
+  }, [pushNotification]);
+
+  const handleLiveDetectIntervalChange = useCallback((value: number) => {
+    setLiveDetectIntervalMs(value);
+    pushNotification('Live interval updated', `Live detect interval set to ${value} ms.`);
   }, [pushNotification]);
 
   const markNotificationsRead = useCallback(() => {
@@ -228,7 +257,10 @@ function App() {
           boxThreshold={boxThreshold}
           onBoxThresholdChange={handleThresholdChange}
           selectedModel={selectedModel}
+          modelOptions={modelOptions}
           onSelectedModelChange={handleModelChange}
+          liveDetectIntervalMs={liveDetectIntervalMs}
+          onLiveDetectIntervalChange={handleLiveDetectIntervalChange}
           tileGrid={tileGrid}
           onTileGridChange={handleTileGridChange}
           streamUrlInput={streamUrlInput}

@@ -67,4 +67,4 @@ echo "Starting UAV API on http://127.0.0.1:${UVICORN_PORT}"
 echo "  Docs: http://127.0.0.1:${UVICORN_PORT}/docs"
 echo "  Health: http://127.0.0.1:${UVICORN_PORT}/health"
 echo "  UI: http://127.0.0.1:${UVICORN_PORT}/"
-exec uvicorn app.main:app --reload --host 127.0.0.1 --port "${UVICORN_PORT}"
+exec uvicorn app.main:app --reload --host 127.0.0.1 --port "${UVICORN_PORT}" --no-access-log

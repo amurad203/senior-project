@@ -75,6 +75,19 @@ def _pick_device() -> str:
     return "cpu"
 
 
+def _configure_mps_fallback(device: str) -> None:
+    """
+    Allow unsupported MPS ops to transparently fallback to CPU.
+    This improves stability for mixed operator paths (e.g., CLIP text encoding).
+    """
+    if device != "mps":
+        return
+    # Keep user override if already explicitly set.
+    if os.getenv("PYTORCH_ENABLE_MPS_FALLBACK") is None:
+        os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+        logger.info("Enabled PYTORCH_ENABLE_MPS_FALLBACK=1 for MPS stability")
+
+
 def _is_truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -151,6 +164,9 @@ class YoloWorldService:
     def __init__(self) -> None:
         self._model = None
         self._device: str | None = None
+        self._runtime_device_override: str | None = None
+        self._last_classes: tuple[str, ...] | None = None
+        self._last_classes_device: str | None = None
         # "m" is a better default for small/distant objects than "s".
         self._model_name = os.getenv("YOLO_WORLD_MODEL", "yolov8m-worldv2.pt")
         self._load_error: str | None = None
@@ -166,6 +182,10 @@ class YoloWorldService:
     @property
     def load_error(self) -> str | None:
         return self._load_error
+
+    @property
+    def active_device(self) -> str:
+        return self._device or "unknown"
 
     def load(self) -> None:
         if os.getenv("SKIP_MODEL_LOAD", "").lower() in ("1", "true", "yes"):
@@ -193,7 +213,8 @@ class YoloWorldService:
             return
 
         try:
-            dev = _pick_device()
+            dev = self._runtime_device_override or _pick_device()
+            _configure_mps_fallback(dev)
             if _trt_enforced():
                 if not _is_trt_engine_model(self._model_name):
                     self._load_error = (
@@ -216,11 +237,31 @@ class YoloWorldService:
             model = YOLO(self._model_name)
             self._device = dev
             self._model = model
+            self._last_classes = None
+            self._last_classes_device = None
             self._load_error = None
         except Exception as e:
             self._load_error = str(e)
             self._model = None
             logger.exception("YOLO-World load failed: %s", e)
+
+    def _is_mps_placeholder_error(self, err: Exception) -> bool:
+        msg = str(err).lower()
+        return "placeholder storage has not been allocated on mps device" in msg
+
+    def _fallback_to_cpu(self, reason: Exception) -> None:
+        if self._runtime_device_override == "cpu" and self._device == "cpu":
+            return
+        logger.warning(
+            "MPS runtime failed (%s). Falling back YOLO-World to CPU.",
+            reason,
+        )
+        self._runtime_device_override = "cpu"
+        self._model = None
+        self._last_classes = None
+        self._last_classes_device = None
+        self._load_error = None
+        self.load()
 
     def set_model(self, model_name: str) -> None:
         """Hot-switch YOLO-World weights at runtime."""
@@ -236,8 +277,33 @@ class YoloWorldService:
         logger.info("Switching YOLO-World model: %s -> %s", self._model_name, next_model)
         self._model_name = next_model
         self._model = None
+        self._last_classes = None
+        self._last_classes_device = None
         self._load_error = None
         self.load()
+
+    def _set_classes_for_device(self, classes: list[str]) -> None:
+        """
+        Set prompt classes for the current runtime device.
+        On MPS, compute text features on CPU to avoid CLIP/MPS placeholder errors,
+        then run detection on MPS with cached text features.
+        """
+        if self._model is None:
+            return
+        device = self._device or "cpu"
+        key = tuple(classes)
+        if key == self._last_classes and self._last_classes_device == device:
+            return
+        if device == "mps":
+            # Workaround: generate class embeddings on CPU, then switch back to MPS.
+            self._model.to("cpu")
+            self._model.set_classes(classes)
+            self._model.to("mps")
+            logger.info("Prepared YOLO-World classes on CPU; running inference on MPS")
+        else:
+            self._model.set_classes(classes)
+        self._last_classes = key
+        self._last_classes_device = device
 
     def detect(
         self,
@@ -250,6 +316,7 @@ class YoloWorldService:
     ) -> tuple[list[dict[str, Any]], str]:
         """text_threshold ignored (YOLO-World uses single conf)."""
         del text_threshold
+        logger.info("YOLO-World detect request on device=%s", self.active_device)
 
         classes, summary = _classes_from_prompt(prompt)
         if not self.is_ready or self._model is None:
@@ -305,19 +372,44 @@ class YoloWorldService:
             return []
 
         try:
-            self._model.set_classes(classes)
+            self._set_classes_for_device(classes)
         except Exception as e:
+            if self._device == "mps" and self._is_mps_placeholder_error(e):
+                self._fallback_to_cpu(e)
+                if self._model is None:
+                    return []
+                try:
+                    self._set_classes_for_device(classes)
+                except Exception as retry_err:
+                    logger.warning("set_classes failed after CPU fallback: %s", retry_err)
+                    return []
             logger.warning("set_classes failed: %s", e)
             return []
 
-        results = self._model.predict(
-            source=image,
-            conf=conf,
-            imgsz=int(os.getenv("YOLO_IMGSZ", "640")),
-            max_det=int(os.getenv("YOLO_MAX_DET", "300")),
-            verbose=False,
-            device=self._device or "cpu",
-        )
+        try:
+            results = self._model.predict(
+                source=image,
+                conf=conf,
+                imgsz=int(os.getenv("YOLO_IMGSZ", "640")),
+                max_det=int(os.getenv("YOLO_MAX_DET", "300")),
+                verbose=False,
+                device=self._device or "cpu",
+            )
+        except Exception as e:
+            if self._device == "mps" and self._is_mps_placeholder_error(e):
+                self._fallback_to_cpu(e)
+                if self._model is None:
+                    return []
+                results = self._model.predict(
+                    source=image,
+                    conf=conf,
+                    imgsz=int(os.getenv("YOLO_IMGSZ", "640")),
+                    max_det=int(os.getenv("YOLO_MAX_DET", "300")),
+                    verbose=False,
+                    device=self._device or "cpu",
+                )
+            else:
+                raise
         if not results:
             return []
 

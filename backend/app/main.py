@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+import platform
 import re
 import subprocess
 import threading
@@ -36,6 +37,8 @@ SUPPORTED_MODELS = (
     "yolov8n-worldv2.pt",
     "yolov8s-worldv2.pt",
     "yolov8m-worldv2.pt",
+    "yolov8l-worldv2.pt",
+    "yolov8x-worldv2.pt",
 )
 _perf_lock = threading.Lock()
 _perf_state = {
@@ -49,6 +52,7 @@ _perf_state = {
 }
 _cpu_prev_total = 0
 _cpu_prev_idle = 0
+_cpu_psutil_warmed = False
 _gpu_tegrastats_last = 0.0
 _gpu_tegrastats_value: float | None = None
 
@@ -69,8 +73,21 @@ def _record_perf(kind: str, elapsed_ms: float) -> None:
 
 
 def _read_cpu_percent() -> float | None:
-    """Compute host CPU utilization from /proc/stat deltas."""
-    global _cpu_prev_total, _cpu_prev_idle
+    """Compute host CPU utilization with cross-platform fallback."""
+    global _cpu_prev_total, _cpu_prev_idle, _cpu_psutil_warmed
+    # Prefer psutil if available (works on macOS and Linux).
+    try:
+        import psutil
+
+        val = float(psutil.cpu_percent(interval=None))
+        if not _cpu_psutil_warmed:
+            _cpu_psutil_warmed = True
+            return None
+        return max(0.0, min(100.0, val))
+    except Exception:
+        pass
+
+    # Linux /proc fallback.
     try:
         with open("/proc/stat", "r", encoding="utf-8") as f:
             line = f.readline().strip()
@@ -111,7 +128,11 @@ def _normalize_gpu_load(raw: int) -> float:
 
 
 def _read_gpu_percent() -> float | None:
-    """Try common GPU load files on Jetson/NVIDIA hosts, then tegrastats."""
+    """Read GPU usage estimate across supported hosts."""
+    if platform.system() == "Darwin":
+        return _read_gpu_percent_macos()
+
+    # Try common GPU load files on Jetson/NVIDIA hosts, then tegrastats.
     candidates = [
         "/sys/devices/gpu.0/load",
         "/sys/class/kgsl/kgsl-3d0/gpubusy",
@@ -129,6 +150,30 @@ def _read_gpu_percent() -> float | None:
         except Exception:
             continue
     return _read_gpu_percent_from_tegrastats()
+
+
+def _read_gpu_percent_macos() -> float | None:
+    """
+    macOS GPU estimate using PyTorch MPS memory pressure.
+    This is a proxy metric (memory usage ratio), not raw GPU compute utilization.
+    """
+    try:
+        import torch
+
+        if not getattr(torch.backends, "mps", None) or not torch.backends.mps.is_available():
+            return None
+        if not hasattr(torch, "mps"):
+            return None
+        recommended = float(torch.mps.recommended_max_memory())
+        if recommended <= 0:
+            return None
+        used = float(torch.mps.driver_allocated_memory())
+        if used <= 0:
+            used = float(torch.mps.current_allocated_memory())
+        pct = (used / recommended) * 100.0
+        return max(0.0, min(100.0, pct))
+    except Exception:
+        return None
 
 
 def _read_gpu_percent_from_tegrastats() -> float | None:
@@ -189,7 +234,11 @@ else:
 def _startup() -> None:
     yolo_service.load()
     if yolo_service.is_ready:
-        logger.info("YOLO-World ready (%s)", yolo_service.model_id)
+        logger.info(
+            "YOLO-World ready (%s) device=%s",
+            yolo_service.model_id,
+            yolo_service.active_device,
+        )
     else:
         logger.warning("YOLO-World not ready: %s", yolo_service.load_error or "unknown")
 
@@ -223,9 +272,15 @@ def perf() -> dict:
         snapshot = dict(_perf_state)
     cpu_pct = _read_cpu_percent()
     gpu_pct = _read_gpu_percent()
+    gpu_metric = (
+        "mps_memory_ratio"
+        if platform.system() == "Darwin"
+        else "gpu_utilization"
+    )
     return {
         "cpu_percent": round(cpu_pct, 1) if cpu_pct is not None else None,
         "gpu_percent": round(gpu_pct, 1) if gpu_pct is not None else None,
+        "gpu_metric": gpu_metric,
         "stream_fps": round(stream_state.fps, 2),
         "stream_has_frame": stream_state.has_frame,
         "stream_running": stream_state.running,
@@ -301,6 +356,12 @@ async def vlm(
     )
     _record_perf("vlm", (time.perf_counter() - t0) * 1000.0)
     summary = f"Detected {len(boxes)} object(s). Targets: {normalized}"
+    logger.info(
+        "/api/vlm completed: device=%s model=%s boxes=%d",
+        yolo_service.active_device,
+        yolo_service.model_id,
+        len(boxes),
+    )
     return {
         "mode": "yolo_world",
         "response": summary,
@@ -356,6 +417,12 @@ async def detect(
         tile_grid=tile_grid_value,
     )
     _record_perf("detect", (time.perf_counter() - t0) * 1000.0)
+    logger.info(
+        "/api/detect completed: device=%s model=%s boxes=%d",
+        yolo_service.active_device,
+        yolo_service.model_id,
+        len(boxes),
+    )
 
     return {
         "prompt_normalized": normalized_prompt,

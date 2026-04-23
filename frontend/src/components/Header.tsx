@@ -14,7 +14,10 @@ interface HeaderProps {
   boxThreshold: number;
   onBoxThresholdChange: (value: number) => void;
   selectedModel: string;
+  modelOptions: string[];
   onSelectedModelChange: (value: string) => void;
+  liveDetectIntervalMs: number;
+  onLiveDetectIntervalChange: (value: number) => void;
   tileGrid: number;
   onTileGridChange: (value: number) => void;
   streamUrlInput: string;
@@ -34,7 +37,10 @@ export function Header({
   boxThreshold,
   onBoxThresholdChange,
   selectedModel,
+  modelOptions,
   onSelectedModelChange,
+  liveDetectIntervalMs,
+  onLiveDetectIntervalChange,
   tileGrid,
   onTileGridChange,
   streamUrlInput,
@@ -177,16 +183,28 @@ export function Header({
                     onChange={(e) => onSelectedModelChange(e.target.value)}
                     className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="yolov8n-worldv2.pt">yolov8n-worldv2.pt (nano, fastest)</option>
-                    <option value="yolov8s-worldv2.pt">yolov8s-worldv2.pt (fastest)</option>
-                    <option value="yolov8m-worldv2.pt">yolov8m-worldv2.pt (balanced)</option>
-                    <option value="yolov8l-worldv2.pt" disabled>
-                      yolov8l-worldv2.pt (design only - unavailable)
-                    </option>
-                    <option value="yolov8x-worldv2.pt" disabled>
-                      yolov8x-worldv2.pt (design only - unavailable)
-                    </option>
+                    {modelOptions.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
                   </select>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between gap-2 text-xs text-zinc-400 mb-1.5">
+                    <label htmlFor="header-live-interval">Live detect interval</label>
+                    <span className="tabular-nums text-zinc-300">{liveDetectIntervalMs} ms</span>
+                  </div>
+                  <input
+                    id="header-live-interval"
+                    type="range"
+                    min={30}
+                    max={500}
+                    step={10}
+                    value={liveDetectIntervalMs}
+                    onChange={(e) => onLiveDetectIntervalChange(Number(e.target.value))}
+                    className="w-full h-2 accent-blue-500 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
+                  />
                 </div>
                 <div>
                   <label htmlFor="header-tile-grid" className="block text-xs text-zinc-400 mb-1.5">

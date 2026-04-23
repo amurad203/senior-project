@@ -226,18 +226,48 @@ export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
+      const getRenderedMediaRect = () => {
+        const containerWidth = canvas.width;
+        const containerHeight = canvas.height;
+        if (containerWidth <= 0 || containerHeight <= 0) {
+          return { x: 0, y: 0, width: 0, height: 0 };
+        }
+
+        const video = videoRef.current;
+        const image = imgRef.current;
+        const mediaWidth =
+          (video && video.videoWidth > 0 ? video.videoWidth : 0) ||
+          (image && image.naturalWidth > 0 ? image.naturalWidth : 0);
+        const mediaHeight =
+          (video && video.videoHeight > 0 ? video.videoHeight : 0) ||
+          (image && image.naturalHeight > 0 ? image.naturalHeight : 0);
+
+        if (!mediaWidth || !mediaHeight) {
+          return { x: 0, y: 0, width: containerWidth, height: containerHeight };
+        }
+
+        // Match CSS object-contain so overlay aligns with visible content area.
+        const scale = Math.min(containerWidth / mediaWidth, containerHeight / mediaHeight);
+        const width = mediaWidth * scale;
+        const height = mediaHeight * scale;
+        const x = (containerWidth - width) / 2;
+        const y = (containerHeight - height) / 2;
+        return { x, y, width, height };
+      };
+
       const resize = () => {
         const rect = container.getBoundingClientRect();
         canvas.width = rect.width;
         canvas.height = rect.height;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const mediaRect = getRenderedMediaRect();
 
         boundingBoxes.forEach((box) => {
-          const x = (box.x / 100) * canvas.width;
-          const y = (box.y / 100) * canvas.height;
-          const w = (box.width / 100) * canvas.width;
-          const h = (box.height / 100) * canvas.height;
+          const x = mediaRect.x + (box.x / 100) * mediaRect.width;
+          const y = mediaRect.y + (box.y / 100) * mediaRect.height;
+          const w = (box.width / 100) * mediaRect.width;
+          const h = (box.height / 100) * mediaRect.height;
 
           ctx.strokeStyle = box.color;
           ctx.lineWidth = 2;
@@ -263,8 +293,12 @@ export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
       resize();
       const observer = new ResizeObserver(resize);
       observer.observe(container);
+      const raf = window.setInterval(resize, 250);
 
-      return () => observer.disconnect();
+      return () => {
+        observer.disconnect();
+        window.clearInterval(raf);
+      };
     }, [boundingBoxes]);
 
     const toggleFullscreen = () => {
