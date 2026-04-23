@@ -72,24 +72,47 @@ class StreamManager:
                 self._last_error = f"opencv unavailable: {e}"
             return
 
-        cap = cv2.VideoCapture(source_url, cv2.CAP_FFMPEG)
-        # Keep decode latency low by minimizing internal buffering.
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        if not cap.isOpened():
-            with self._lock:
-                self._last_error = f"failed to open stream: {source_url}"
-            return
-
         frames = 0
         window_start = time.time()
+        cap = None
+        consecutive_read_failures = 0
+        reconnect_backoff_s = 1.0
+
+        def open_stream():
+            local_cap = cv2.VideoCapture(source_url, cv2.CAP_FFMPEG)
+            # Keep decode latency low by minimizing internal buffering.
+            local_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            return local_cap
+
         try:
             while not self._stop.is_set():
+                if cap is None or not cap.isOpened():
+                    if cap is not None:
+                        cap.release()
+                    cap = open_stream()
+                    if not cap.isOpened():
+                        with self._lock:
+                            self._last_error = f"failed to open stream: {source_url}; retrying"
+                            self._latest_jpeg = None
+                        time.sleep(reconnect_backoff_s)
+                        reconnect_backoff_s = min(5.0, reconnect_backoff_s + 0.5)
+                        continue
+                    consecutive_read_failures = 0
+                    reconnect_backoff_s = 1.0
+
                 ok, frame = cap.read()
                 if not ok or frame is None:
+                    consecutive_read_failures += 1
                     with self._lock:
-                        self._last_error = "stream read failed"
-                    time.sleep(0.05)
+                        self._last_error = (
+                            f"stream read failed ({consecutive_read_failures}); reconnecting"
+                        )
+                    # Force capture recreation to recover stale/broken decoder state.
+                    cap.release()
+                    cap = None
+                    time.sleep(min(2.0, 0.1 * consecutive_read_failures))
                     continue
+                consecutive_read_failures = 0
                 ok_enc, enc = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
                 if ok_enc:
                     with self._lock:
@@ -104,7 +127,8 @@ class StreamManager:
                     frames = 0
                     window_start = now
         finally:
-            cap.release()
+            if cap is not None:
+                cap.release()
 
 
 stream_manager = StreamManager()
