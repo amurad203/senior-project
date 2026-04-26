@@ -1,7 +1,7 @@
 import type { BoundingBox } from '../types';
 
 export interface VlmResponse {
-  mode: 'yolo_world';
+  mode: 'yolo_world' | 'yolo_e';
   response: string;
   boxes: BoundingBox[];
   count?: number;
@@ -30,6 +30,7 @@ export async function postVlm(
   image: Blob,
   prompt: string,
   boxThreshold?: number | null,
+  detectorBackend?: 'yolo_world' | 'yolo_e',
   modelId?: string | null,
   tileGrid?: number | null
 ): Promise<VlmResponse> {
@@ -38,6 +39,9 @@ export async function postVlm(
   fd.append('prompt', prompt);
   if (boxThreshold != null && Number.isFinite(boxThreshold)) {
     fd.append('box_threshold', String(boxThreshold));
+  }
+  if (detectorBackend) {
+    fd.append('detector_backend', detectorBackend);
   }
   if (modelId) {
     fd.append('model_id', modelId);

@@ -29,6 +29,7 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 
 from app.stream_manager import stream_manager
+from app.yolo_e import SUPPORTED_YOLO_E_MODELS, service as yolo_e_service
 from app.yolo_world import service as yolo_service
 
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +41,7 @@ SUPPORTED_MODELS = (
     "yolov8l-worldv2.pt",
     "yolov8x-worldv2.pt",
 )
+SUPPORTED_BACKENDS = ("yolo_world", "yolo_e")
 _perf_lock = threading.Lock()
 _perf_state = {
     "vlm_last_ms": 0.0,
@@ -268,6 +270,7 @@ else:
 @app.on_event("startup")
 def _startup() -> None:
     yolo_service.load()
+    yolo_e_service.load()
     if yolo_service.is_ready:
         logger.info(
             "YOLO-World ready (%s) device=%s",
@@ -276,6 +279,14 @@ def _startup() -> None:
         )
     else:
         logger.warning("YOLO-World not ready: %s", yolo_service.load_error or "unknown")
+    if yolo_e_service.is_ready:
+        logger.info(
+            "YOLO-E ready (%s) device=%s",
+            yolo_e_service.model_id,
+            yolo_e_service.active_device,
+        )
+    else:
+        logger.warning("YOLO-E not ready: %s", yolo_e_service.load_error or "unknown")
 
 
 @app.get("/health")
@@ -292,6 +303,14 @@ def health() -> dict:
             "error": yolo_service.load_error,
             "supported_models": SUPPORTED_MODELS,
         },
+        "yolo_e": {
+            "loaded": yolo_e_service.is_ready,
+            "model_id": yolo_e_service.model_id,
+            "active_device": yolo_e_service.active_device,
+            "error": yolo_e_service.load_error,
+            "supported_models": SUPPORTED_YOLO_E_MODELS,
+        },
+        "supported_backends": SUPPORTED_BACKENDS,
         "stream": {
             "running": stream_state.running,
             "source_url": stream_state.source_url,
@@ -350,6 +369,7 @@ async def vlm(
     box_threshold: float | None = Form(None),
     text_threshold: float | None = Form(None),
     model_id: str | None = Form(None),
+    detector_backend: str | None = Form(None),
     tile_grid: int | None = Form(None),
 ) -> dict:
     """Image + prompt -> YOLO-World detection boxes (+ short summary text)."""
@@ -362,13 +382,28 @@ async def vlm(
     except UnidentifiedImageError as e:
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}") from e
 
+    selected_backend = (detector_backend or "yolo_world").strip().lower()
+    if selected_backend not in SUPPORTED_BACKENDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported detector_backend '{selected_backend}'.",
+        )
+
     if model_id:
-        if model_id not in SUPPORTED_MODELS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported model_id '{model_id}'.",
-            )
-        yolo_service.set_model(model_id)
+        if selected_backend == "yolo_world":
+            if model_id not in SUPPORTED_MODELS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported YOLO model_id '{model_id}'.",
+                )
+            yolo_service.set_model(model_id)
+        elif selected_backend == "yolo_e":
+            if model_id not in SUPPORTED_YOLO_E_MODELS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported YOLO-E model_id '{model_id}'.",
+                )
+            yolo_e_service.set_model(model_id)
 
     tile_grid_value: int | None = None
     if tile_grid is not None:
@@ -376,17 +411,32 @@ async def vlm(
             raise HTTPException(status_code=400, detail="tile_grid must be in [1, 4].")
         tile_grid_value = int(tile_grid)
 
-    if not yolo_service.is_ready:
-        reason = yolo_service.load_error or "unknown"
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"Detection model not loaded: {reason}. "
-                "Install dependencies (see README) and restart the server."
-            ),
-        )
+    if selected_backend == "yolo_world":
+        if not yolo_service.is_ready:
+            reason = yolo_service.load_error or "unknown"
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Detection model not loaded: {reason}. "
+                    "Install dependencies (see README) and restart the server."
+                ),
+            )
+        detector_service = yolo_service
+    elif selected_backend == "yolo_e":
+        if not yolo_e_service.is_ready:
+            reason = yolo_e_service.load_error or "unknown"
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"YOLO-E not loaded: {reason}. "
+                    "Install YOLO-E weights/dependencies and restart the server."
+                ),
+            )
+        detector_service = yolo_e_service
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported detector_backend '{selected_backend}'.")
     t0 = time.perf_counter()
-    boxes, normalized = yolo_service.detect(
+    boxes, normalized = detector_service.detect(
         pil,
         prompt,
         box_threshold=box_threshold,
@@ -396,13 +446,14 @@ async def vlm(
     _record_perf("vlm", (time.perf_counter() - t0) * 1000.0)
     summary = f"Detected {len(boxes)} object(s). Targets: {normalized}"
     logger.info(
-        "/api/vlm completed: device=%s model=%s boxes=%d",
-        yolo_service.active_device,
-        yolo_service.model_id,
+        "/api/vlm completed: backend=%s device=%s model=%s boxes=%d",
+        selected_backend,
+        detector_service.active_device,
+        detector_service.model_id,
         len(boxes),
     )
     return {
-        "mode": "yolo_world",
+        "mode": selected_backend,
         "response": summary,
         "boxes": boxes,
         "count": len(boxes),

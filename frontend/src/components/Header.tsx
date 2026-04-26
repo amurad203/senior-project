@@ -11,6 +11,9 @@ type HeaderNotification = {
   unread: boolean;
 };
 interface HeaderProps {
+  selectedBackend: 'yolo_world' | 'yolo_e';
+  backendOptions: Array<'yolo_world' | 'yolo_e'>;
+  onSelectedBackendChange: (value: 'yolo_world' | 'yolo_e') => void;
   boxThreshold: number;
   onBoxThresholdChange: (value: number) => void;
   selectedModel: string;
@@ -34,6 +37,9 @@ interface HeaderProps {
 }
 
 export function Header({
+  selectedBackend,
+  backendOptions,
+  onSelectedBackendChange,
   boxThreshold,
   onBoxThresholdChange,
   selectedModel,
@@ -174,8 +180,27 @@ export function Header({
                   />
                 </div>
                 <div>
+                  <label htmlFor="header-backend-select" className="block text-xs text-zinc-400 mb-1.5">
+                    Detection backend
+                  </label>
+                  <select
+                    id="header-backend-select"
+                    value={selectedBackend}
+                    onChange={(e) =>
+                      onSelectedBackendChange(e.target.value as 'yolo_world' | 'yolo_e')
+                    }
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {backendOptions.map((backend) => (
+                      <option key={backend} value={backend}>
+                        {backend}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label htmlFor="header-model-select" className="block text-xs text-zinc-400 mb-1.5">
-                    YOLO-World model
+                    {selectedBackend === 'yolo_world' ? 'YOLO-World model' : 'YOLO-E model'}
                   </label>
                   <select
                     id="header-model-select"
@@ -206,22 +231,24 @@ export function Header({
                     className="w-full h-2 accent-blue-500 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
                   />
                 </div>
-                <div>
-                  <label htmlFor="header-tile-grid" className="block text-xs text-zinc-400 mb-1.5">
-                    Tiling grid
-                  </label>
-                  <select
-                    id="header-tile-grid"
-                    value={tileGrid}
-                    onChange={(e) => onTileGridChange(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value={1}>1x1 (off)</option>
-                    <option value={2}>2x2</option>
-                    <option value={3}>3x3</option>
-                    <option value={4}>4x4</option>
-                  </select>
-                </div>
+                {(selectedBackend === 'yolo_world' || selectedBackend === 'yolo_e') && (
+                  <div>
+                    <label htmlFor="header-tile-grid" className="block text-xs text-zinc-400 mb-1.5">
+                      Tiling grid
+                    </label>
+                    <select
+                      id="header-tile-grid"
+                      value={tileGrid}
+                      onChange={(e) => onTileGridChange(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value={1}>1x1 (off)</option>
+                      <option value={2}>2x2</option>
+                      <option value={3}>3x3</option>
+                      <option value={4}>4x4</option>
+                    </select>
+                  </div>
+                )}
                 <div className="border border-zinc-700 rounded-lg p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <label htmlFor="header-stream-url" className="text-xs text-zinc-400">

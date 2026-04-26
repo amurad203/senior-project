@@ -1,6 +1,9 @@
 # Senior UAV Detection App
 
-YOLO-World drone-monitoring app with FastAPI backend and React frontend.
+Multi-backend open-vocabulary detection app with FastAPI backend and React frontend.
+Built-in backends:
+- `yolo_world` (default)
+- `yolo_e`
 
 ## Run (Native, single service)
 
@@ -16,6 +19,8 @@ Then open:
 - Docs: <http://127.0.0.1:8765/docs>
 
 `run.sh` auto-installs backend dependencies and builds `frontend/dist` (unless `SKIP_FRONTEND_BUILD=1`).
+
+Users can choose backend from the frontend Settings panel.
 
 ## Run (Docker, single service)
 

@@ -40,6 +40,7 @@ interface VideoPanelProps {
   streamUrl?: string | null;
   liveDetectActive?: boolean;
   perfStats?: PerfStats | null;
+  isBusy?: boolean;
 }
 
 type LocalFile = { kind: 'image' | 'video'; url: string };
@@ -124,6 +125,7 @@ export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
       streamUrl = null,
       liveDetectActive = false,
       perfStats = null,
+      isBusy = false,
     },
     ref
   ) {
@@ -464,6 +466,15 @@ export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
               </div>
               <div>
                 detect: <span className="text-zinc-100">{perfStats.detect.est_fps.toFixed(1)}</span> fps
+              </div>
+            </div>
+          )}
+
+          {isBusy && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/25 pointer-events-none">
+              <div className="inline-flex items-center gap-3 rounded-full bg-zinc-900/90 border border-zinc-700 px-4 py-2">
+                <span className="w-5 h-5 rounded-full border-2 border-zinc-500 border-t-sky-400 animate-spin" />
+                <span className="text-sm text-zinc-100">Downloading / processing model...</span>
               </div>
             </div>
           )}

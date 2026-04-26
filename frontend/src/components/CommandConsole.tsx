@@ -6,7 +6,7 @@ interface CommandConsoleProps {
   messages?: Message[];
   /** If set, awaited for each send; return text shown as system reply. */
   onSendCommand?: (command: string) => Promise<string>;
-  activeModel?: 'yolo_world' | null;
+  activeModel?: 'yolo_world' | 'yolo_e' | null;
 }
 
 export function CommandConsole({
@@ -100,7 +100,12 @@ export function CommandConsole({
   };
 
   const isEmpty = localMessages.length === 0 && !isLoading;
-  const modelLabel = activeModel === 'yolo_world' ? 'YOLO-World' : 'Unknown';
+  const modelLabel =
+    activeModel === 'yolo_world'
+      ? 'YOLO-World'
+      : activeModel === 'yolo_e'
+        ? 'YOLO-E'
+          : 'Unknown';
 
   return (
     <div className="flex flex-col w-full h-full min-h-0 max-w-md bg-zinc-900 border-t lg:border-t-0 lg:border-l border-zinc-800 rounded-lg lg:rounded-l-lg overflow-hidden">

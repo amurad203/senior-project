@@ -19,6 +19,13 @@ const DEFAULT_MODELS = [
   'yolov8l-worldv2.pt',
   'yolov8x-worldv2.pt',
 ];
+const DEFAULT_YOLO_E_MODELS = [
+  'yoloe-11s-seg.pt',
+  'yoloe-11m-seg.pt',
+  'yoloe-11l-seg.pt',
+];
+type DetectorBackend = 'yolo_world' | 'yolo_e';
+const DEFAULT_BACKENDS: DetectorBackend[] = ['yolo_world', 'yolo_e'];
 
 type ScenarioPreset = {
   id: string;
@@ -83,8 +90,11 @@ function App() {
   const [detectionPrompt, setDetectionPrompt] = useState('');
   /** Sent as `box_threshold` to the API (YOLO confidence). Lower → more boxes. */
   const [boxThreshold, setBoxThreshold] = useState(0.15);
+  const [selectedBackend, setSelectedBackend] = useState<DetectorBackend>('yolo_world');
+  const [backendOptions, setBackendOptions] = useState<DetectorBackend[]>(DEFAULT_BACKENDS);
   const [selectedModel, setSelectedModel] = useState('yolov8m-worldv2.pt');
   const [modelOptions, setModelOptions] = useState<string[]>(DEFAULT_MODELS);
+  const [yoloEModelOptions, setYoloEModelOptions] = useState<string[]>(DEFAULT_YOLO_E_MODELS);
   const [liveDetectIntervalMs, setLiveDetectIntervalMs] = useState(DEFAULT_LIVE_DETECT_INTERVAL_MS);
   const [tileGrid, setTileGrid] = useState(1);
   const [streamUrlInput, setStreamUrlInput] = useState('');
@@ -94,12 +104,13 @@ function App() {
   const [streamError, setStreamError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<UiNotification[]>([]);
   const [perfStats, setPerfStats] = useState<PerfStats | null>(null);
+  const [pendingDetections, setPendingDetections] = useState(0);
   const [streamUrl, setStreamUrl] = useState<string | null>(
     typeof import.meta.env.VITE_STREAM_URL === 'string' && import.meta.env.VITE_STREAM_URL.trim()
       ? import.meta.env.VITE_STREAM_URL.trim()
       : null
   );
-  const activeModel = 'yolo_world' as const;
+  const activeModel = selectedBackend;
   const busyRef = useRef(false);
   const prevStreamConnectedRef = useRef(false);
 
@@ -110,6 +121,12 @@ function App() {
     });
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setNotifications((prev) => [{ id, title, message, timestamp, unread: true }, ...prev].slice(0, 30));
+  }, []);
+  const beginDetectionActivity = useCallback(() => {
+    setPendingDetections((prev) => prev + 1);
+  }, []);
+  const endDetectionActivity = useCallback(() => {
+    setPendingDetections((prev) => (prev > 0 ? prev - 1 : 0));
   }, []);
 
   const handleSendCommand = useCallback(async (command: string) => {
@@ -122,17 +139,23 @@ function App() {
       throw new Error('Enter a detection prompt first (for example: person, car).');
     }
     setDetectionPrompt(trimmed);
-    const blob = await cap.captureFrame(1280, 0.88);
-    const data = await postVlm(
-      blob,
-      trimmed,
-      boxThreshold,
-      selectedModel,
-      tileGrid
-    );
-    setBoundingBoxes(data.boxes);
-    return data.response;
-  }, [boxThreshold, selectedModel, tileGrid]);
+    beginDetectionActivity();
+    try {
+      const blob = await cap.captureFrame(1280, 0.88);
+      const data = await postVlm(
+        blob,
+        trimmed,
+        boxThreshold,
+        selectedBackend,
+        selectedModel,
+        tileGrid
+      );
+      setBoundingBoxes(data.boxes);
+      return data.response;
+    } finally {
+      endDetectionActivity();
+    }
+  }, [boxThreshold, selectedBackend, selectedModel, tileGrid, beginDetectionActivity, endDetectionActivity]);
 
   useEffect(() => {
     if (isPaused) {
@@ -151,6 +174,7 @@ function App() {
           blob,
           prompt,
           boxThreshold,
+          selectedBackend,
           selectedModel,
           tileGrid
         );
@@ -164,17 +188,34 @@ function App() {
     const id = window.setInterval(tick, liveDetectIntervalMs);
     void tick();
     return () => clearInterval(id);
-  }, [isPaused, detectionPrompt, boxThreshold, selectedModel, tileGrid, liveDetectIntervalMs]);
+  }, [isPaused, detectionPrompt, boxThreshold, selectedBackend, selectedModel, tileGrid, liveDetectIntervalMs]);
 
   useEffect(() => {
     let cancelled = false;
     const loadHealth = async () => {
       try {
         const health = await getHealth();
+        const supportedBackends = (health.supported_backends ?? DEFAULT_BACKENDS).filter(
+          (backend): backend is DetectorBackend => backend === 'yolo_world' || backend === 'yolo_e'
+        );
+        if (!cancelled && supportedBackends.length > 0) {
+          setBackendOptions(supportedBackends);
+          setSelectedBackend((prev) => (supportedBackends.includes(prev) ? prev : supportedBackends[0]));
+        }
         const supported = health.yolo_world?.supported_models ?? [];
         if (!cancelled && supported.length > 0) {
-          setModelOptions(supported);
-          setSelectedModel((prev) => (supported.includes(prev) ? prev : supported[0]));
+          if (selectedBackend === 'yolo_world') {
+            setModelOptions(supported);
+            setSelectedModel((prev) => (supported.includes(prev) ? prev : supported[0]));
+          }
+        }
+        const supportedYoloE = health.yolo_e?.supported_models ?? [];
+        if (!cancelled && supportedYoloE.length > 0) {
+          setYoloEModelOptions(supportedYoloE);
+          if (selectedBackend === 'yolo_e') {
+            setModelOptions(supportedYoloE);
+            setSelectedModel((prev) => (supportedYoloE.includes(prev) ? prev : supportedYoloE[0]));
+          }
         }
       } catch (e) {
         console.warn('Unable to load supported models from backend health:', e);
@@ -184,7 +225,20 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedBackend]);
+
+  useEffect(() => {
+    if (selectedBackend === 'yolo_world') {
+      setModelOptions(DEFAULT_MODELS);
+      setSelectedModel((prev) => (DEFAULT_MODELS.includes(prev) ? prev : DEFAULT_MODELS[0]));
+      return;
+    }
+    if (selectedBackend === 'yolo_e') {
+      setModelOptions(yoloEModelOptions);
+      setSelectedModel((prev) => (yoloEModelOptions.includes(prev) ? prev : yoloEModelOptions[0]));
+      return;
+    }
+  }, [selectedBackend, yoloEModelOptions]);
 
   const refreshStreamStatus = useCallback(async () => {
     try {
@@ -281,7 +335,15 @@ function App() {
 
   const handleModelChange = useCallback((value: string) => {
     setSelectedModel(value);
-    pushNotification('Model updated', `YOLO model changed to ${value}.`);
+    pushNotification(
+      'Model updated',
+      `${selectedBackend === 'yolo_world' ? 'YOLO-World' : 'YOLO-E'} model changed to ${value}.`
+    );
+  }, [pushNotification, selectedBackend]);
+
+  const handleBackendChange = useCallback((value: DetectorBackend) => {
+    setSelectedBackend(value);
+    pushNotification('Backend updated', `Detector backend set to ${value}.`);
   }, [pushNotification]);
 
   const handleTileGridChange = useCallback((value: number) => {
@@ -315,6 +377,9 @@ function App() {
     <div className="h-dvh flex flex-col bg-zinc-950 text-white overflow-hidden">
       <div className="shrink-0">
         <Header
+          selectedBackend={selectedBackend}
+          backendOptions={backendOptions}
+          onSelectedBackendChange={handleBackendChange}
           boxThreshold={boxThreshold}
           onBoxThresholdChange={handleThresholdChange}
           selectedModel={selectedModel}
@@ -348,6 +413,7 @@ function App() {
             streamUrl={streamUrl}
             liveDetectActive
             perfStats={perfStats}
+            isBusy={pendingDetections > 0}
           />
         </div>
         <div className="w-full lg:min-w-[380px] lg:max-w-md shrink-0 min-h-[320px] flex flex-col h-[min(420px,52dvh)] lg:h-full">

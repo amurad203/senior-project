@@ -9,3 +9,4 @@ runs/
 Ultralytics/
 *.egg-info/
 .pytest_cache/
+mobileclip_blt.ts
