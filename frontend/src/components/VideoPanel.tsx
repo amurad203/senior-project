@@ -26,6 +26,10 @@ export type VideoFeedCapture = {
   captureFrame: (maxSide?: number, quality?: number) => Promise<Blob>;
   /** True when there is a frame source (not the empty placeholder). */
   hasActiveFeed: () => boolean;
+  /** Load an internal demo scenario image into the panel. */
+  loadScenario: (scenarioId: string) => void;
+  /** Load a scenario from a direct media URL. */
+  loadScenarioMedia: (kind: 'image' | 'video', url: string) => void;
 };
 
 interface VideoPanelProps {
@@ -39,6 +43,76 @@ interface VideoPanelProps {
 }
 
 type LocalFile = { kind: 'image' | 'video'; url: string };
+
+const SCENARIO_IMAGES: Record<string, string> = {
+  traffic: `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+      <defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#0f172a" />
+          <stop offset="100%" stop-color="#334155" />
+        </linearGradient>
+      </defs>
+      <rect width="1280" height="720" fill="url(#sky)" />
+      <rect y="470" width="1280" height="250" fill="#111827" />
+      <rect y="515" width="1280" height="8" fill="#f8fafc" opacity="0.8" />
+      <rect x="160" y="515" width="120" height="8" fill="#111827" />
+      <rect x="380" y="515" width="120" height="8" fill="#111827" />
+      <rect x="600" y="515" width="120" height="8" fill="#111827" />
+      <rect x="820" y="515" width="120" height="8" fill="#111827" />
+      <rect x="1040" y="515" width="120" height="8" fill="#111827" />
+      <rect x="120" y="430" width="240" height="60" rx="12" fill="#ef4444" />
+      <rect x="420" y="400" width="280" height="80" rx="14" fill="#3b82f6" />
+      <rect x="790" y="420" width="220" height="65" rx="12" fill="#10b981" />
+      <rect x="1080" y="415" width="140" height="58" rx="10" fill="#f59e0b" />
+    </svg>
+  `,
+  warehouse: `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+      <rect width="1280" height="720" fill="#111827" />
+      <rect y="520" width="1280" height="200" fill="#1f2937" />
+      <rect x="100" y="120" width="290" height="380" fill="#374151" />
+      <rect x="460" y="90" width="330" height="410" fill="#4b5563" />
+      <rect x="860" y="130" width="320" height="370" fill="#374151" />
+      <rect x="180" y="420" width="90" height="100" fill="#f97316" />
+      <rect x="300" y="435" width="70" height="85" fill="#f59e0b" />
+      <rect x="560" y="430" width="95" height="90" fill="#ef4444" />
+      <rect x="690" y="440" width="80" height="80" fill="#22c55e" />
+      <circle cx="940" cy="500" r="24" fill="#93c5fd" />
+      <circle cx="1040" cy="498" r="24" fill="#93c5fd" />
+      <rect x="915" y="460" width="150" height="30" rx="8" fill="#3b82f6" />
+    </svg>
+  `,
+  runway: `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+      <rect width="1280" height="720" fill="#0b1120" />
+      <rect y="430" width="1280" height="290" fill="#1e293b" />
+      <polygon points="500,430 780,430 980,720 300,720" fill="#334155" />
+      <rect x="615" y="450" width="50" height="22" fill="#f8fafc" />
+      <rect x="610" y="500" width="60" height="25" fill="#f8fafc" />
+      <rect x="605" y="560" width="70" height="30" fill="#f8fafc" />
+      <rect x="596" y="640" width="88" height="38" fill="#f8fafc" />
+      <rect x="230" y="365" width="170" height="35" rx="8" fill="#06b6d4" />
+      <rect x="890" y="340" width="220" height="45" rx="10" fill="#f43f5e" />
+      <circle cx="1060" cy="334" r="12" fill="#f8fafc" />
+      <circle cx="1110" cy="334" r="12" fill="#f8fafc" />
+    </svg>
+  `,
+  marine: `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">
+      <rect width="1280" height="720" fill="#0f172a" />
+      <rect y="380" width="1280" height="340" fill="#0ea5e9" />
+      <path d="M0 420 C120 390 220 455 340 420 C460 385 570 455 690 420 C810 388 930 455 1050 420 C1160 395 1220 430 1280 420 L1280 720 L0 720 Z" fill="#0284c7" />
+      <rect x="120" y="305" width="260" height="55" rx="10" fill="#475569" />
+      <rect x="420" y="250" width="320" height="95" rx="14" fill="#334155" />
+      <rect x="800" y="300" width="340" height="62" rx="12" fill="#475569" />
+      <polygon points="520,470 760,470 700,530 580,530" fill="#f8fafc" />
+      <rect x="595" y="438" width="95" height="32" fill="#22c55e" />
+      <circle cx="620" cy="510" r="10" fill="#111827" />
+      <circle cx="690" cy="510" r="10" fill="#111827" />
+    </svg>
+  `,
+};
 
 export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
   function VideoPanel(
@@ -82,6 +156,32 @@ export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
       ref,
       () => ({
         hasActiveFeed,
+        loadScenario: (scenarioId: string) => {
+          const markup = SCENARIO_IMAGES[scenarioId];
+          if (!markup) return;
+          setUseWebcam(false);
+          setLocalFile((prev) => {
+            if (prev?.url) URL.revokeObjectURL(prev.url);
+            const blob = new Blob([markup], { type: 'image/svg+xml' });
+            return { kind: 'image', url: URL.createObjectURL(blob) };
+          });
+        },
+        loadScenarioMedia: (kind: 'image' | 'video', url: string) => {
+          if (!url.trim()) return;
+          setUseWebcam(false);
+          setLocalFile((prev) => {
+            if (prev?.url) URL.revokeObjectURL(prev.url);
+            return null;
+          });
+          if (videoRef.current) {
+            videoRef.current.srcObject = null;
+            videoRef.current.src = '';
+          }
+          if (imgRef.current) {
+            imgRef.current.src = '';
+          }
+          setLocalFile({ kind, url: url.trim() });
+        },
         captureFrame: async (maxSide = 960, quality = 0.82) => {
           const v = videoRef.current;
           const videoActive =
@@ -319,10 +419,10 @@ export const VideoPanel = forwardRef<VideoFeedCapture, VideoPanelProps>(
     }, []);
 
     return (
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex h-full min-h-0 flex-col flex-1 min-w-0">
         <div
           ref={containerRef}
-          className="relative aspect-video bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800"
+          className="relative flex-1 min-h-0 bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800"
         >
           {isLive && feedActive && (
             <div className="absolute top-3 left-3 z-10 flex items-center gap-2 px-2 py-1 bg-red-500/90 rounded text-white text-xs font-medium">

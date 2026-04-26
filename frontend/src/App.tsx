@@ -19,6 +19,42 @@ const DEFAULT_MODELS = [
   'yolov8l-worldv2.pt',
   'yolov8x-worldv2.pt',
 ];
+
+type ScenarioPreset = {
+  id: string;
+  label: string;
+  prompt: string;
+  source:
+    | { type: 'built_in'; scenarioId: string }
+    | { type: 'media'; mediaKind: 'image' | 'video'; mediaUrl: string };
+};
+
+const SCENARIO_PRESETS: ScenarioPreset[] = [
+  {
+    id: 'traffic',
+    label: 'Traffic (Demo)',
+    prompt: 'car, bus, truck, motorcycle, person',
+    source: { type: 'built_in', scenarioId: 'traffic' },
+  },
+  {
+    id: 'warehouse',
+    label: 'Warehouse (Demo)',
+    prompt: 'person, forklift, pallet, box',
+    source: { type: 'built_in', scenarioId: 'warehouse' },
+  },
+  {
+    id: 'runway',
+    label: 'Airport Runway (Demo)',
+    prompt: 'airplane, vehicle, person',
+    source: { type: 'built_in', scenarioId: 'runway' },
+  },
+  {
+    id: 'marine',
+    label: 'Marine Port (Demo)',
+    prompt: 'boat, ship, container, person',
+    source: { type: 'built_in', scenarioId: 'marine' },
+  },
+];
 type UiNotification = {
   id: string;
   title: string;
@@ -250,6 +286,19 @@ function App() {
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
   }, []);
 
+  const handleSelectScenario = useCallback((scenario: ScenarioPreset) => {
+    const cap = feedRef.current;
+    if (!cap) return;
+    if (scenario.source.type === 'built_in') {
+      cap.loadScenario(scenario.source.scenarioId);
+    } else {
+      cap.loadScenarioMedia(scenario.source.mediaKind, scenario.source.mediaUrl);
+    }
+    setDetectionPrompt(scenario.prompt);
+    setIsPaused(false);
+    pushNotification('Scenario selected', `${scenario.label} loaded with prompt: ${scenario.prompt}`);
+  }, [pushNotification]);
+
   return (
     <div className="h-dvh flex flex-col bg-zinc-950 text-white overflow-hidden">
       <div className="shrink-0">
@@ -277,8 +326,8 @@ function App() {
         />
       </div>
 
-      <main className="flex-1 flex min-h-0 flex-col lg:flex-row p-4 gap-4 overflow-hidden">
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col min-h-[200px]">
+      <main className="flex-1 flex min-h-0 flex-col lg:flex-row p-4 gap-4 overflow-hidden lg:items-stretch">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col min-h-[260px]">
           <VideoPanel
             ref={feedRef}
             boundingBoxes={boundingBoxes}
@@ -289,13 +338,35 @@ function App() {
             perfStats={perfStats}
           />
         </div>
-        <div className="w-full lg:min-w-[380px] lg:max-w-md shrink-0 min-h-0 flex flex-col h-[min(420px,52dvh)] lg:h-full">
+        <div className="w-full lg:min-w-[380px] lg:max-w-md shrink-0 min-h-[320px] flex flex-col h-[min(420px,52dvh)] lg:h-full">
           <CommandConsole
             onSendCommand={handleSendCommand}
             activeModel={activeModel}
           />
         </div>
       </main>
+
+      <section className="shrink-0 border-t border-zinc-800 px-4 py-3 bg-zinc-950/90">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-zinc-100">Scenario Presets</h3>
+            <span className="text-xs text-zinc-400">Pick a built-in scene or your predefined videos</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {SCENARIO_PRESETS.map((scenario) => (
+              <button
+                key={scenario.id}
+                type="button"
+                onClick={() => handleSelectScenario(scenario)}
+                className="px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-100 text-sm transition-colors"
+                title={scenario.prompt}
+              >
+                {scenario.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
 
       {/*
         True multi-viewer broadcast is out of band here: publish the drone feed with WebRTC (e.g. WHIP/WHEP),
