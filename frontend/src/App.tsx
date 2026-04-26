@@ -13,19 +13,13 @@ const DEFAULT_LIVE_DETECT_INTERVAL_MS = 60;
 /** Smaller JPEG for faster upload on live path */
 const LIVE_CAPTURE_MAX_SIDE = 640;
 const DEFAULT_MODELS = [
-  'yolov8n-worldv2.pt',
   'yolov8s-worldv2.pt',
   'yolov8m-worldv2.pt',
   'yolov8l-worldv2.pt',
   'yolov8x-worldv2.pt',
 ];
-const DEFAULT_YOLO_E_MODELS = [
-  'yoloe-11s-seg.pt',
-  'yoloe-11m-seg.pt',
-  'yoloe-11l-seg.pt',
-];
-type DetectorBackend = 'yolo_world' | 'yolo_e';
-const DEFAULT_BACKENDS: DetectorBackend[] = ['yolo_world', 'yolo_e'];
+type DetectorBackend = 'yolo_world';
+const DEFAULT_BACKENDS: DetectorBackend[] = ['yolo_world'];
 
 type ScenarioPreset = {
   id: string;
@@ -39,39 +33,39 @@ type ScenarioPreset = {
 const SCENARIO_PRESETS: ScenarioPreset[] = [
   {
     id: 'traffic-light-video',
-    label: 'Traffic Light (Video)',
+    label: 'Traffic Light',
     prompt: 'traffic light, car, bus, truck, motorcycle, person',
     source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/traffic-light.mp4' },
   },
   {
     id: 'people-walking-video',
-    label: 'People Walking (Video)',
+    label: 'People Walking',
     prompt: 'person, pedestrian',
     source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/people-walking.mp4' },
   },
   {
-    id: 'traffic',
-    label: 'Traffic (Demo)',
+    id: 'traffic-video',
+    label: 'Cars',
     prompt: 'car, bus, truck, motorcycle, person',
-    source: { type: 'built_in', scenarioId: 'traffic' },
+    source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/traffic-day.mp4' },
   },
   {
-    id: 'warehouse',
-    label: 'Warehouse (Demo)',
+    id: 'warehouse-video',
+    label: 'Warehouse',
     prompt: 'person, forklift, pallet, box',
-    source: { type: 'built_in', scenarioId: 'warehouse' },
+    source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/warehouse.mp4' },
   },
   {
-    id: 'runway',
-    label: 'Airport Runway (Demo)',
+    id: 'runway-video',
+    label: 'Airport Runway',
     prompt: 'airplane, vehicle, person',
-    source: { type: 'built_in', scenarioId: 'runway' },
+    source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/airport-runway.mp4' },
   },
   {
-    id: 'marine',
-    label: 'Marine Port (Demo)',
+    id: 'marine-video',
+    label: 'Marine Port',
     prompt: 'boat, ship, container, person',
-    source: { type: 'built_in', scenarioId: 'marine' },
+    source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/marine-port.mp4' },
   },
 ];
 type UiNotification = {
@@ -92,9 +86,8 @@ function App() {
   const [boxThreshold, setBoxThreshold] = useState(0.15);
   const [selectedBackend, setSelectedBackend] = useState<DetectorBackend>('yolo_world');
   const [backendOptions, setBackendOptions] = useState<DetectorBackend[]>(DEFAULT_BACKENDS);
-  const [selectedModel, setSelectedModel] = useState('yolov8m-worldv2.pt');
+  const [selectedModel, setSelectedModel] = useState('yolov8s-worldv2.pt');
   const [modelOptions, setModelOptions] = useState<string[]>(DEFAULT_MODELS);
-  const [yoloEModelOptions, setYoloEModelOptions] = useState<string[]>(DEFAULT_YOLO_E_MODELS);
   const [liveDetectIntervalMs, setLiveDetectIntervalMs] = useState(DEFAULT_LIVE_DETECT_INTERVAL_MS);
   const [tileGrid, setTileGrid] = useState(1);
   const [streamUrlInput, setStreamUrlInput] = useState('');
@@ -196,7 +189,7 @@ function App() {
       try {
         const health = await getHealth();
         const supportedBackends = (health.supported_backends ?? DEFAULT_BACKENDS).filter(
-          (backend): backend is DetectorBackend => backend === 'yolo_world' || backend === 'yolo_e'
+          (backend): backend is DetectorBackend => backend === 'yolo_world'
         );
         if (!cancelled && supportedBackends.length > 0) {
           setBackendOptions(supportedBackends);
@@ -207,14 +200,6 @@ function App() {
           if (selectedBackend === 'yolo_world') {
             setModelOptions(supported);
             setSelectedModel((prev) => (supported.includes(prev) ? prev : supported[0]));
-          }
-        }
-        const supportedYoloE = health.yolo_e?.supported_models ?? [];
-        if (!cancelled && supportedYoloE.length > 0) {
-          setYoloEModelOptions(supportedYoloE);
-          if (selectedBackend === 'yolo_e') {
-            setModelOptions(supportedYoloE);
-            setSelectedModel((prev) => (supportedYoloE.includes(prev) ? prev : supportedYoloE[0]));
           }
         }
       } catch (e) {
@@ -233,12 +218,7 @@ function App() {
       setSelectedModel((prev) => (DEFAULT_MODELS.includes(prev) ? prev : DEFAULT_MODELS[0]));
       return;
     }
-    if (selectedBackend === 'yolo_e') {
-      setModelOptions(yoloEModelOptions);
-      setSelectedModel((prev) => (yoloEModelOptions.includes(prev) ? prev : yoloEModelOptions[0]));
-      return;
-    }
-  }, [selectedBackend, yoloEModelOptions]);
+  }, [selectedBackend]);
 
   const refreshStreamStatus = useCallback(async () => {
     try {
@@ -337,9 +317,9 @@ function App() {
     setSelectedModel(value);
     pushNotification(
       'Model updated',
-      `${selectedBackend === 'yolo_world' ? 'YOLO-World' : 'YOLO-E'} model changed to ${value}.`
+      `YOLO-World model changed to ${value}.`
     );
-  }, [pushNotification, selectedBackend]);
+  }, [pushNotification]);
 
   const handleBackendChange = useCallback((value: DetectorBackend) => {
     setSelectedBackend(value);

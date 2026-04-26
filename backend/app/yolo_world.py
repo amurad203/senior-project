@@ -3,7 +3,7 @@ YOLO-World: open-vocabulary detection via Ultralytics (text class names).
 
 Prompt: comma-separated class names, e.g. "person, car, dog".
 Env:
-  YOLO_WORLD_MODEL  — default yolov8m-worldv2.pt (s/m/l/x-worldv2 also work)
+  YOLO_WORLD_MODEL  — default yolov8s-worldv2.pt (s/m/l/x-worldv2 also work)
   YOLO_CONF         — default confidence threshold 0.25
   YOLO_TILE_2X2     — set 1/true/yes to run detection on 4 tiles for better small-object recall
   DINO_DEVICE       — cpu | cuda | mps (same as other vision backends)
@@ -202,8 +202,7 @@ class YoloWorldService:
         self._runtime_device_override: str | None = None
         self._last_classes: tuple[str, ...] | None = None
         self._last_classes_device: str | None = None
-        # "m" is a better default for small/distant objects than "s".
-        self._model_name = os.getenv("YOLO_WORLD_MODEL", "yolov8m-worldv2.pt")
+        self._model_name = os.getenv("YOLO_WORLD_MODEL", "yolov8s-worldv2.pt")
         self._load_error: str | None = None
 
     @property

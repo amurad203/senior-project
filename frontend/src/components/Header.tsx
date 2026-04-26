@@ -11,9 +11,9 @@ type HeaderNotification = {
   unread: boolean;
 };
 interface HeaderProps {
-  selectedBackend: 'yolo_world' | 'yolo_e';
-  backendOptions: Array<'yolo_world' | 'yolo_e'>;
-  onSelectedBackendChange: (value: 'yolo_world' | 'yolo_e') => void;
+  selectedBackend: 'yolo_world';
+  backendOptions: Array<'yolo_world'>;
+  onSelectedBackendChange: (value: 'yolo_world') => void;
   boxThreshold: number;
   onBoxThresholdChange: (value: number) => void;
   selectedModel: string;
@@ -187,7 +187,7 @@ export function Header({
                     id="header-backend-select"
                     value={selectedBackend}
                     onChange={(e) =>
-                      onSelectedBackendChange(e.target.value as 'yolo_world' | 'yolo_e')
+                      onSelectedBackendChange(e.target.value as 'yolo_world')
                     }
                     className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
@@ -200,7 +200,7 @@ export function Header({
                 </div>
                 <div>
                   <label htmlFor="header-model-select" className="block text-xs text-zinc-400 mb-1.5">
-                    {selectedBackend === 'yolo_world' ? 'YOLO-World model' : 'YOLO-E model'}
+                    YOLO-World model
                   </label>
                   <select
                     id="header-model-select"
@@ -231,7 +231,7 @@ export function Header({
                     className="w-full h-2 accent-blue-500 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
                   />
                 </div>
-                {(selectedBackend === 'yolo_world' || selectedBackend === 'yolo_e') && (
+                {selectedBackend === 'yolo_world' && (
                   <div>
                     <label htmlFor="header-tile-grid" className="block text-xs text-zinc-400 mb-1.5">
                       Tiling grid
