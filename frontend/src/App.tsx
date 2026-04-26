@@ -31,6 +31,18 @@ type ScenarioPreset = {
 
 const SCENARIO_PRESETS: ScenarioPreset[] = [
   {
+    id: 'traffic-light-video',
+    label: 'Traffic Light (Video)',
+    prompt: 'traffic light, car, bus, truck, motorcycle, person',
+    source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/traffic-light.mp4' },
+  },
+  {
+    id: 'people-walking-video',
+    label: 'People Walking (Video)',
+    prompt: 'person, pedestrian',
+    source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/people-walking.mp4' },
+  },
+  {
     id: 'traffic',
     label: 'Traffic (Demo)',
     prompt: 'car, bus, truck, motorcycle, person',
