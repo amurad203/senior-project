@@ -49,24 +49,6 @@ const SCENARIO_PRESETS: ScenarioPreset[] = [
     prompt: 'car, bus, truck, motorcycle, person',
     source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/traffic-day.mp4' },
   },
-  {
-    id: 'warehouse-video',
-    label: 'Warehouse',
-    prompt: 'person, forklift, pallet, box',
-    source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/warehouse.mp4' },
-  },
-  {
-    id: 'runway-video',
-    label: 'Airport Runway',
-    prompt: 'airplane, vehicle, person',
-    source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/airport-runway.mp4' },
-  },
-  {
-    id: 'marine-video',
-    label: 'Marine Port',
-    prompt: 'boat, ship, container, person',
-    source: { type: 'media', mediaKind: 'video', mediaUrl: '/scenarios/marine-port.mp4' },
-  },
 ];
 type UiNotification = {
   id: string;
